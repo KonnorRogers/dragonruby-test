@@ -26,6 +26,7 @@ module SpriteKit
         extension = file.split(".").last
 
         if @loadable_extensions.include?(extension)
+          GTK.reset_sprite(stat[:path])
           spritesheets << load_file(
               name: stat[:name],
               path: stat[:path],

@@ -1,5 +1,14 @@
 require "app/enemies.rb"
-require "app/scenes/play_scene"
+require "app/animation_mixin.rb"
+require "app/reactive_mixin.rb"
+require "app/ui.rb"
+require "app/ui/circle.rb"
+require "app/ui/attack_circle.rb"
+require "app/ui/on_screen_joystick.rb"
+require "app/ui/health_bar.rb"
+require "app/enemy.rb"
+require "app/player.rb"
+require "app/scenes/play_scene.rb"
 
 module App
   class Game
