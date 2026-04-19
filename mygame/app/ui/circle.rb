@@ -1,6 +1,13 @@
 module App
   module UI
     class Circle < SpriteKit::Sprite
+      SOLID = {
+        source_x: 0,
+        source_y: 0,
+        source_h: 512,
+        source_w: 512,
+        path: "sprites/circle/solid.png"
+      }
 
       SPRITES = {
         medium_gray: {

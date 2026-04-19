@@ -1,5 +1,5 @@
 { "frames": {
-   "ui-0.aseprite": {
+   "ui.png": {
     "frame": { "x": 0, "y": 0, "w": 320, "h": 320 },
     "rotated": false,
     "trimmed": false,
@@ -11,15 +11,14 @@
  "meta": {
   "app": "https://www.aseprite.org/",
   "version": "1.x-dev",
-  "image": "ui.png",
+  "image": "ui-sheet.png",
   "format": "RGBA8888",
   "size": { "w": 320, "h": 320 },
   "scale": "1",
   "frameTags": [
   ],
   "layers": [
-   { "name": "bottom", "opacity": 255, "blendMode": "normal" },
-   { "name": "top", "opacity": 255, "blendMode": "normal" }
+   { "name": "Layer", "opacity": 255, "blendMode": "normal" }
   ],
   "slices": [
   ]

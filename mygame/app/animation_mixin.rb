@@ -1,20 +1,30 @@
 module App
   module AnimationMixin
-    attr_accessor :state, :animations, :animation_start
-
-    def initialize(...)
-      super(...)
-      @state ||= :idle
-      @animations ||= {}
-      @animation_start ||= 0
+    def self.included(base)
+      base.prepend(PrependedMethods)
     end
 
+    module PrependedMethods
+      def initialize(...)
+        super(...)
+        @state ||= :idle
+        @animations ||= {}
+        @animation_start ||= 0
+        update_sprite
+      end
+    end
+
+    attr_accessor :state, :animations, :animation_start
+
     def update_sprite(sprite = @animations[@state])
-      @source_x = sprite.source_x
-      @source_y = sprite.source_y
-      @source_w = sprite.source_w
-      @source_h = sprite.source_h
-      @path = sprite.path
+      @sprite = sprite
+      if @sprite
+        @source_x = sprite.source_x
+        @source_y = sprite.source_y
+        @source_w = sprite.source_w
+        @source_h = sprite.source_h
+        @path = sprite.path
+      end
     end
 
     def current_frame

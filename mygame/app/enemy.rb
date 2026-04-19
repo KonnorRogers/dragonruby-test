@@ -1,22 +1,14 @@
 module App
-  class Enemy
-    attr_sprite
+  class Enemy < Character
+    attr_accessor :speed, :animations, :hit_box, :state
 
-    include AnimationMixin
+    reactive :state, :speed, :direction, :max_hp, :current_hp
 
-    attr_accessor :hp, :speed, :actions
+    def initialize(**kwargs)
+      super(**kwargs)
 
-    def initialize(data)
-      @hp            = data[:hp]
-      @speed         = data[:speed]
-      @animations    = data[:animations] # loaded from data
-      @state         = :idle
-      # @behavior   = data[:behavior]    # a behavior object/proc
-    end
-
-    # Shortcut in DR to always render.
-    def to_a
-      self
+      @state = :idle
+      update
     end
   end
 end

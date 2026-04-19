@@ -163,7 +163,7 @@ module SpriteKit
     # @param {#x, #y, #w, #h, #scale} camera
     # @param {#x, #y, #w, #h} rect
     def self.to_screen_space(camera, rect)
-      to_screen_space!(camera, rect.merge({}))
+      to_screen_space!(camera, rect.dup)
     end
 
     # @param {#x, #y, #w, #h, #scale} camera
@@ -171,13 +171,17 @@ module SpriteKit
     def self.to_screen_space!(camera, rect)
       x = rect.x * camera.scale - camera.x * camera.scale + (camera.half_width)
       y = rect.y * camera.scale - camera.y * camera.scale + (camera.half_height)
-      w = rect.w * camera.scale
-      h = rect.h * camera.scale
+
+      if rect.w
+        rect.w = rect.w * camera.scale
+      end
+
+      if rect.h
+        rect.h = rect.h * camera.scale
+      end
 
       rect.x = x
       rect.y = y
-      rect.w = w
-      rect.h = h
       rect
     end
 

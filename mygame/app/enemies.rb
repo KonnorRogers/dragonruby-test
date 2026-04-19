@@ -5,16 +5,21 @@ module App
 
   ENEMIES = {
     hyena: {
-      idle: {
-        source_x: 192,
-        source_y: 352,
-        source_h: 32,
-        source_w: 32,
-        hit_box: {
-          w: 32,
-          h: 18
-        },
-        path: Enemies::ANIMALS_SPRITESHEET
+      max_hp: 32,
+      behavior: :patrol,
+      faction: :enemy,
+      hit_box: {
+        w: 32,
+        h: 18
+      },
+      animations: {
+        idle: {
+          source_x: 192,
+          source_y: 352,
+          source_h: 32,
+          source_w: 32,
+          path: Enemies::ANIMALS_SPRITESHEET
+        }
       }
     }
   }
