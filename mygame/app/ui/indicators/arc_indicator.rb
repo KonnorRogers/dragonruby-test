@@ -99,8 +99,12 @@ module App
 
           fill_triangles = calc_cone_indicator(x, y, length, apex_angle_degrees, rotation_degrees, steps: 20)
 
-          border_triangles.each { |spr| spr.merge!({ r: 0, b: 255, g: 200, a: 255 }) }
-          fill_triangles.each { |spr| spr.merge!({ r: 80, b: 250, g: 80, a: 255 }) }
+          border_triangles.each do |spr|
+            spr.merge!({ r: 0, b: 255, g: 200, a: 255 })
+          end
+          fill_triangles.each do |spr|
+            spr.merge!({ r: 80, b: 250, g: 80, a: 255 })
+          end
 
           {
             border_triangles: border_triangles,
@@ -136,3 +140,50 @@ module App
   end
 end
 
+
+
+# def self.render(length:, spread:, anchor:, angle: nil)
+#   angle ||= anchor.angle
+
+#   cone = build_cone_indicator(anchor: anchor, length: length, spread: spread, angle: angle)
+
+#   [
+#     {
+#       x: anchor.x,
+#       y: anchor.y,
+#       **cone
+#     }
+#   ]
+# end
+
+# May come back to this sprite sampling, if i wanted visually interesting arcs.
+# def self.build_cone_indicator(anchor:, length:, spread:, angle:)
+#   # We know our circle indicator is 512x512, so "midpoint" is 256.
+#   center_x = 256
+#   center_y = 256
+#   radius = 256
+
+#   half = spread / 2.0
+#   left_angle  = (angle - half) * Math::PI / 180.0
+#   right_angle = (angle + half) * Math::PI / 180.0
+
+#   cone = {
+#     x: anchor.x,
+#     y: anchor.y,
+#     x2: anchor.x + Math.cos(left_angle) * radius,
+#     y2: anchor.y + Math.sin(left_angle) * radius,
+#     x3: anchor.x + Math.cos(right_angle) * radius,
+#     y3: anchor.y + Math.sin(right_angle) * radius,
+#     source_x:  center_x,
+#     source_y:  center_y,
+#     source_x2: center_x + Math.cos(left_angle)  * radius,
+#     source_y2: center_y + Math.sin(left_angle)  * radius,
+#     source_x3: center_x + Math.cos(right_angle) * radius,
+#     source_y3: center_y + Math.sin(right_angle) * radius,
+#     angle: angle,
+#     path: "sprites/circle/solid.png"
+#   }
+#   putz60 cone
+
+#   cone
+# end
