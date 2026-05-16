@@ -1,7 +1,6 @@
 module App
   module UI
     class OnScreenJoyStick
-      include ReactiveMixin
 
       SPRITES = {
         source_x: 80,

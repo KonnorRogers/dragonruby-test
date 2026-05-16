@@ -2,9 +2,6 @@ module App
   module UI
     class Bar < SpriteKit::Sprite
       include AnimationMixin
-      include ReactiveMixin
-
-      reactive :state
 
       SPRITES = {
         outline: {
@@ -95,9 +92,8 @@ module App
 
       def initialize(type:, **kwargs)
         super(**kwargs)
-        on_change { update_sprite }
         @type = type
-        update_sprite
+        update
 
         # @corners = {
         #   top_left: {},
@@ -167,6 +163,10 @@ module App
         c.merge!(x: inner_x, y: inner_y, w: inner_w, h: inner_h)
 
         [tl, tr, bl, br, tc, bc, cl, cr, c].compact
+      end
+
+      def update
+        update_sprite
       end
 
       def update_sprite(sprite = SPRITES[@type])

@@ -10,12 +10,18 @@ module App
         player.y = Grid.h / 2
         player.target_y = player.y
         player.target_x = player.x
+        player.w = 18
+        player.h = 16
+        # player.hit_box = {
+        #   h: 16,
+        #   w: 18,
+        # }
       end
       @tick_count = 0
       @target = nil
       @target_circle = ::App::UI::Circle.new(type: :target)
       @characters = [
-        Enemy.new(
+        Character.new(
           engine: self,
           **App::ENEMIES[:hyena],
           x: 300,
@@ -49,22 +55,16 @@ module App
       # y_end = y_start + 128
       size = 96
       @attack_button = ::App::UI::AttackCircle.new(w: size, h: size, x: (size * 2).from_right, y: size)
+      @building_menu = {
+      }
+
       @ui = {
         attack_button: @attack_button.to_a,
         player_frame: player_frame,
         enemy_frame: enemy_frame,
       }
 
-      @radial_buttons = UI::RadialMenu.new(anchor: @attack_button, number_of_buttons: 5)
-    end
-
-
-    def debug_triangle(triangle)
-      [
-        { x: triangle.x, y: triangle.y, text: "x: #{triangle.x}, y: #{triangle.y}" },
-        { x: triangle.x2, y: triangle.y2, text: "x2: #{triangle.x2}, y2: #{triangle.y2}" },
-        { x: triangle.x3, y: triangle.y3, text: "x3: #{triangle.x3}, y3: #{triangle.y3}" },
-      ]
+      # @radial_buttons = UI::RadialMenu.new(anchor: @attack_button, number_of_buttons: 5)
     end
 
     def tick(args)
@@ -86,51 +86,36 @@ module App
       if @inputs.up
         @player.target_y += speed
         @player.direction = :up
+        @player.state = :walking
       elsif @inputs.down
         @player.target_y -= speed
         @player.direction = :down
+        @player.state = :walking
       elsif @inputs.right
         @player.target_x += speed
         @player.direction = :right
+        @player.state = :walking
       elsif @inputs.left
         @player.target_x -= speed
         @player.direction = :left
+        @player.state = :walking
+      else
+        @player.state = :idle
       end
 
-      if @inputs.keyboard.key_down.one
-        @player.active_spell = @player.spells[:one]
-      end
-
-      @player.targeting_angle = @world_mouse.angle_from(@player)
-      # @outputs.debug << "angle: #{@player.angle}"
+      # @player.targeting_angle = @world_mouse.angle_from(@player)
 
       if @inputs.mouse.buttons.left.click
-        if @player.active_spell
-          @player.active_spell.cast(player: @player)
-          @player.active_spell = nil
-        else
-          character = Geometry.find_intersect_rect(@world_mouse, @characters)
-          @player.target = character
-          if character
-            @target_circle.x = character.x - 2
-            @target_circle.y = character.y - 2
-            @target_circle.w = character.hit_box.w + 4
-            @target_circle.h = character.hit_box.h + 4
-          else
-            @player.state = :idle
-          end
-        end
-      elsif @inputs.mouse.buttons.right.click
         character = Geometry.find_intersect_rect(@world_mouse, @characters)
+        @player.target = character
         if character
-          @player.state = :attacking
-          @player.target = character
           @target_circle.x = character.x - 2
           @target_circle.y = character.y - 2
           @target_circle.w = character.hit_box.w + 4
           @target_circle.h = character.hit_box.h + 4
+        else
+          @player.state = :idle
         end
-
       end
 
       handle_camera_zoom
@@ -188,15 +173,17 @@ module App
       # args.outputs.debug << @player.to_s
       args.outputs.debug << @camera.viewport.to_s
       @player.update
+      Array.each(@characters) { |spr| spr.update }
       @player.active_spell&.update(player: @player, outputs: @outputs)
 
       screen_renderables = []
-          .concat(@characters.map(&:prefab))
+          .concat(Array.map(@characters) { |spr| spr.prefab })
           .concat(@player.prefab)
           .flatten
           .map { |spr| @camera.to_screen_space!(spr.dup) }
 
       if @player.target
+        @target_circle.update
         screen_renderables.unshift(@camera.to_screen_space!(@target_circle.dup))
       end
 
@@ -215,7 +202,7 @@ module App
           @camera.viewport,
         ]
           .concat(@ui.values.flatten)
-          .concat(@radial_buttons.buttons)
+          # .concat(@radial_buttons.buttons)
           .concat(@floating_text.flush(@camera))
           .concat(
             GTK.framerate_diagnostics_primitives.map do |primitive|

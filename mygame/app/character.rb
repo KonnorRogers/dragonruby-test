@@ -1,11 +1,9 @@
 module App
   class Character < SpriteKit::Sprite
-    attr_accessor :target_x, :target_y, :target, :engine
+    attr_accessor :target_x, :target_y, :target, :engine,
+                  :speed, :animations, :hit_box, :state, :direction
 
     include AnimationMixin
-    include ReactiveMixin
-
-    reactive :state, :speed, :direction, :max_hp, :current_hp
 
     def initialize(engine:, **kwargs)
       super(**kwargs)
@@ -33,10 +31,7 @@ module App
       @attack_cooldown = 2.0
       @attack_range = 15
       @last_attack = 0
-
-      on_change do
-        update
-      end
+      update
     end
 
     def serialize
@@ -47,7 +42,14 @@ module App
     end
 
     def prefab
-      ary = [self]
+      ary = []
+
+      if @animation_prefab
+        ary.concat(@animation_prefab)
+      else
+        ary << self
+      end
+
       @health_bar.each do |k, v|
         if k == :label
           ary << v
@@ -74,6 +76,9 @@ module App
     end
 
     def update_health_bar
+      # return if !@health_bar
+      return if !@x || !@y || !@w || !@h
+
       height = 16
       padding = 0
       width = 64
@@ -91,6 +96,7 @@ module App
         else
           primitive.w = width
           primitive.h = height
+          primitive.update
         end
       end
       @health_bar.fill.w = (hp_percentage * width).round
@@ -128,8 +134,6 @@ module App
       if @current_hp < 0
         @current_hp = 0
       end
-
-      update_health_bar
     end
   end
 end

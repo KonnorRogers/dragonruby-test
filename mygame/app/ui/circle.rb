@@ -41,14 +41,14 @@ module App
       }
 
       include App::AnimationMixin
-      include App::ReactiveMixin
-
-      reactive :type
 
       def initialize(type:, **kwargs)
         super(**kwargs)
-        on_change { update_sprite }
         @type = type
+        update
+      end
+
+      def update
         update_sprite
       end
 

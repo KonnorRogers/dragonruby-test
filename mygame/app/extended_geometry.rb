@@ -47,5 +47,14 @@ module App
     def self.distance_between(rect1, rect2)
       extended_distance_between(rect1, rect2)[:distance]
     end
+
+    def debug_triangle(triangle)
+      [
+        { x: triangle.x, y: triangle.y, text: "x: #{triangle.x}, y: #{triangle.y}" },
+        { x: triangle.x2, y: triangle.y2, text: "x2: #{triangle.x2}, y2: #{triangle.y2}" },
+        { x: triangle.x3, y: triangle.y3, text: "x3: #{triangle.x3}, y3: #{triangle.y3}" },
+      ]
+    end
+
   end
 end

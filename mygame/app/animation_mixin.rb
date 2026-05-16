@@ -5,20 +5,54 @@ module App
     end
 
     module PrependedMethods
+      attr_accessor :state, :animations, :animation_start
       def initialize(...)
         super(...)
         @state ||= :idle
         @animations ||= {}
         @animation_start ||= 0
-        update_sprite
+        @animation_prefab = nil
+        @current_frame = nil
       end
     end
 
-    attr_accessor :state, :animations, :animation_start
 
-    def update_sprite(sprite = @animations[@state])
-      @sprite = sprite
-      if @sprite
+    def initialize(...)
+      super(...)
+      @animations ||= {}
+      # update_sprite
+    end
+
+
+    def update_sprite(sprite = current_frame)
+      return if !sprite
+      return if !@w || !@h || !@x || !@y
+
+      if sprite&.prefab
+        @animation_prefab = sprite.prefab if sprite.prefab.is_a?(Array)
+        if sprite.prefab.is_a?(Hash)
+          @animation_prefab = sprite.prefab.values
+          @animation_prefab.map do |val|
+            offset_x = if val.offset_x.is_a?(Proc)
+                         val.offset_x.call(self) || 0
+                       else
+                         val.offset_x || 0
+                       end
+
+            offset_y = if val.offset_y.is_a?(Proc)
+                         val.offset_y.call(self) || 0
+                       else
+                         val.offset_y || 0
+                       end
+
+            val.x = @x + offset_x
+            val.y = @y + offset_y
+            val.w = @w
+            val.h = @h
+          end
+        end
+      else
+        @animation_prefab = nil
         @source_x = sprite.source_x
         @source_y = sprite.source_y
         @source_w = sprite.source_w
@@ -27,28 +61,58 @@ module App
       end
     end
 
-    def current_frame
-      # get the frame data for the current action the player is in
-      action = @animations[@state]
+    def to_a
+      @animation_prefab || self
+    end
 
+    def current_frame(action = @animations[@state])
       return if !action
 
-      # Numeric.frame returns the following hash
-      # For example, this would be the frame data for performing an attack
-      # {
-      #   frame_index: 3,
-      #   frame_count: 5,
-      #   frames_left: 2,
-      #   started: true,
-      #   completed: false,
-      #   duration: 15,
-      #   elapsed_time: 10,
-      #   frame_elapsed_time: 1
-      # }
-      Numeric.frame(start_at: @animation_start,
-                    frame_count: action.frame_count,
-                    hold_for: action.hold_for,
-                    repeat: action.repeat)
+      frames = action&.frames
+
+      if frames.is_a?(Array)
+        frame_index = __frame_index(
+          start_at: @animation_start,
+          repeat: action.repeat,
+          tick_count_override: @engine.tick_count,
+          frames: frames
+        )
+
+        frames[frame_index] if frame_index
+      else
+        action
+      end
+    end
+
+    def __frame_index(frames:, start_at: 0, repeat: false, repeat_index: 0, tick_count_override: Kernel.tick_count)
+      tick_count = tick_count_override
+      held_frames = 0
+      frame_index = nil
+
+      frames.length.times do |index|
+        frame = frames[index]
+        held_frames += (frame.hold_for || 1)
+        if start_at + held_frames > tick_count
+          frame_index = index
+          break
+        end
+      end
+
+      if !frame_index && repeat
+        total_duration = held_frames
+        elapsed = (tick_count - start_at) % total_duration
+        held_frames = 0
+        frames.length.times do |index|
+          frame = frames[index]
+          held_frames += (frame.hold_for || 1)
+          if held_frames > elapsed
+            frame_index = index
+            break
+          end
+        end
+      end
+
+      frame_index
     end
   end
 end

@@ -17,6 +17,7 @@ module SpriteKit
       @y = 0
       @h = Grid.h
       @w = (Grid.w / 5).ceil
+      @focus = nil
 
       @buttons = {
         gap_button: {
@@ -39,7 +40,7 @@ module SpriteKit
             str = SpriteMethods.serialize_sprite(@state.current_sprite, :ruby)
             GTK.exec("echo \"#{str}\" | pbcopy")
           }
-        }
+        },
         # save_format: {
         #   label: proc { { id: :save_format, text: "Copy to clipboard" } },
         # }
@@ -118,9 +119,12 @@ module SpriteKit
     end
 
     def input(args)
-      # if @render_target && @current_sprite && args.inputs.click && @world_mouse.intersect_rect?(@render_path)
-      #   @world_mouse
-      # end
+      if @focus && args.inputs.mouse.click && args.inputs.mouse.intersect_rect?(@focus)
+        @focus = nil
+      end
+
+      if @focus
+      end
     end
 
     def calc(args)
@@ -181,7 +185,7 @@ module SpriteKit
       button_borders = []
 
       @buttons.each do |key, button|
-        label = text.find { |hash| hash[:id] == button.id }
+        label = text.find { |hash| hash[:id] == key }
         if label
           button_borders.concat(Primitives.borders(label, padding: 8).values)
           if args.inputs.click && args.inputs.mouse.intersect_rect?(label)
@@ -226,8 +230,8 @@ module SpriteKit
               start_tick = args.inputs.mouse.buttons.left.click_at
               current_tick = Kernel.tick_count
 
-              diff = (current_tick - (start_tick + 75))
-              if diff > 0 && diff % 4 == 0
+              diff = (current_tick - (start_tick + 30))
+              if diff > 0
                 counter.increment.call
               end
             end
@@ -238,8 +242,8 @@ module SpriteKit
               start_tick = args.inputs.mouse.buttons.left.click_at
               current_tick = Kernel.tick_count
 
-              diff = (current_tick - (start_tick + 75))
-              if diff > 0 && diff % 4 == 0
+              diff = (current_tick - (start_tick + 30))
+              if diff > 0
                 counter.decrement.call
               end
             end
@@ -251,6 +255,12 @@ module SpriteKit
         .concat(button_borders)
         .concat(text)
         .concat(counter_buttons)
+
+      if @focus
+        @state.draw_buffer[@render_path].concat(
+          Primitives.borders(@focus, padding: 8).values
+        )
+      end
 
 
       # need this top-layer
