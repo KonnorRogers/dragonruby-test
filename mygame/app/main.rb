@@ -19,6 +19,9 @@ require "app/ui/frame.rb"
 require "app/character.rb"
 require "app/enemy.rb"
 require "app/player.rb"
+require "app/map.rb"
+
+# Always last
 require "app/engine.rb"
 require "app/scenes/play_scene.rb"
 require "app/game.rb"

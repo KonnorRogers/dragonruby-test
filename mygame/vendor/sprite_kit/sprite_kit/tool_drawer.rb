@@ -1,7 +1,6 @@
 require SpriteKit.to_load_path("sprite_methods")
 require SpriteKit.to_load_path("string_helper")
 
-
 module SpriteKit
   class ToolDrawer
     attr_accessor :state, :render_path, :w, :h, :x, :y
@@ -20,6 +19,13 @@ module SpriteKit
       @focus = nil
 
       @buttons = {
+        view_file_tree: {
+          id: :view_file_tree,
+          label: proc { { id: :view_file_tree, text: "View File Tree" } },
+          handle_click: proc {
+            @state.next_view = :file_tree
+          }
+        },
         gap_button: {
           id: :gap,
           label: proc { { id: :gap, text: (@state.current_sprite.prefab ? "Add gap" : "Remove Gap") } },
@@ -119,11 +125,16 @@ module SpriteKit
     end
 
     def input(args)
-      if @focus && args.inputs.mouse.click && args.inputs.mouse.intersect_rect?(@focus)
-        @focus = nil
+      if args.inputs.keyboard.key_down.tab
+        idx = @state.views.find_index { |view| @state.view == view }
+        idx += 1
+        idx = 0 if idx >= @state.views.length
+
+        @state.next_view = @state.views[idx]
       end
 
-      if @focus
+      if @focus && args.inputs.mouse.click && args.inputs.mouse.intersect_rect?(@focus)
+        @focus = nil
       end
     end
 
@@ -142,6 +153,7 @@ module SpriteKit
       label_offset_y = 40
 
       text = [
+        @buttons.view_file_tree.label.call,
         { text: "brush: { " },
         @counters.tile_selection_w.label.call,
         @counters.tile_selection_h.label.call,
@@ -307,3 +319,4 @@ module SpriteKit
     end
   end
 end
+

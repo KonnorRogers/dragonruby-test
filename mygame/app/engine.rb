@@ -58,6 +58,8 @@ module App
       @building_menu = {
       }
 
+      @map = Map.new
+
       @ui = {
         attack_button: @attack_button.to_a,
         player_frame: player_frame,
@@ -176,11 +178,11 @@ module App
       Array.each(@characters) { |spr| spr.update }
       @player.active_spell&.update(player: @player, outputs: @outputs)
 
-      screen_renderables = []
-          .concat(Array.map(@characters) { |spr| spr.prefab })
-          .concat(@player.prefab)
-          .flatten
-          .map { |spr| @camera.to_screen_space!(spr.dup) }
+      screen_renderables = @map.tiles.slice(0, 40)
+                              .concat(Array.map(@characters) { |spr| spr.prefab })
+                              .concat(@player.prefab)
+                              .flatten
+                              .map { |spr| @camera.to_screen_space!(spr.dup) }
 
       if @player.target
         @target_circle.update

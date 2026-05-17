@@ -140,15 +140,22 @@ module SpriteKit
     end
 
     def self.to_world_space!(camera, rect)
-      x = (rect.x - (camera.half_width) + camera.x * camera.scale - camera.offset_x) / camera.scale
-      y = (rect.y - (camera.half_height) + camera.y * camera.scale - camera.offset_y) / camera.scale
-      w = rect.w / camera.scale
-      h = rect.h / camera.scale
+      if rect.x
+        rect.x = (rect.x - (camera.half_width) + camera.x * camera.scale - camera.offset_x) / camera.scale
+      end
 
-      rect.x = x
-      rect.y = y
-      rect.w = w
-      rect.h = h
+      if rect.y
+        rect.y = (rect.y - (camera.half_height) + camera.y * camera.scale - camera.offset_y) / camera.scale
+      end
+
+      if rect.w
+        rect.w = rect.w / camera.scale
+      end
+
+      if rect.h
+        rect.h = rect.h / camera.scale
+      end
+
       rect
     end
 
@@ -163,14 +170,19 @@ module SpriteKit
     # @param {#x, #y, #w, #h, #scale} camera
     # @param {#x, #y, #w, #h} rect
     def self.to_screen_space(camera, rect)
-      to_screen_space!(camera, rect.dup)
+      to_screen_space!(camera, rect.merge({}))
     end
 
     # @param {#x, #y, #w, #h, #scale} camera
     # @param {#x, #y, #w, #h} rect
     def self.to_screen_space!(camera, rect)
-      x = rect.x * camera.scale - camera.x * camera.scale + (camera.half_width)
-      y = rect.y * camera.scale - camera.y * camera.scale + (camera.half_height)
+      if rect.x
+        rect.x = rect.x * camera.scale - camera.x * camera.scale + (camera.half_width)
+      end
+
+      if rect.y
+        rect.y = rect.y * camera.scale - camera.y * camera.scale + (camera.half_height)
+      end
 
       if rect.w
         rect.w = rect.w * camera.scale
@@ -180,8 +192,6 @@ module SpriteKit
         rect.h = rect.h * camera.scale
       end
 
-      rect.x = x
-      rect.y = y
       rect
     end
 
@@ -207,6 +217,13 @@ module SpriteKit
 
     def to_a
       viewport.merge!({})
+    end
+
+    def reset
+      @target_x = 0
+      @target_y = 0
+      @x = 0
+      @y = 0
     end
   end
 end
