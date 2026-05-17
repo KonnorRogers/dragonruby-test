@@ -4,6 +4,7 @@ module App
 
     def initialize
       @camera = SpriteKit::Camera.new(path: :camera)
+      @camera_updated = true
       @floating_text = App::UI::FloatingText.new(engine: self, path: @camera.path)
       @player = Player.new(engine: self).tap do |player|
         player.x = Grid.w / 2
@@ -77,6 +78,7 @@ module App
       input(args)
       calc(args)
       render(args)
+      @camera_updated = false
       @tick_count += 1
     end
 
@@ -160,6 +162,8 @@ module App
       @camera.target_x = @player.target_x
       @camera.target_y = @player.target_y
 
+      @camera_updated = (@camera.target_x > 0 || @camera.target_y > 0 || @camera.target_scale > 0)
+
       @camera.scale += (@camera.target_scale - @camera.scale)
       @camera.x += (@camera.target_x - @camera.x)
       @camera.y += (@camera.target_y - @camera.y)
@@ -172,17 +176,26 @@ module App
       camera_rt.h = viewport.h
       camera_rt.background_color = [0,0,0,255]
 
-      # args.outputs.debug << @player.to_s
       args.outputs.debug << @camera.viewport.to_s
-      @player.update
-      Array.each(@characters) { |spr| spr.update }
-      @player.active_spell&.update(player: @player, outputs: @outputs)
 
-      screen_renderables = @map.tiles.slice(0, 40)
-                              .concat(Array.map(@characters) { |spr| spr.prefab })
-                              .concat(@player.prefab)
-                              .flatten
-                              .map { |spr| @camera.to_screen_space!(spr.dup) }
+      @map.bake_chunks(args)
+      # if @camera_updated
+      #   @viewport_tiles = @map.tiles_in_viewport(@camera).map do |tile|
+      #     @camera.to_screen_space!(tile.dup)
+      #   end
+      # end
+
+      @player.update
+
+      screen_renderables = @map.chunks_in_viewport(@camera)
+                            .concat(@map.objects_in_viewport(@camera))
+                            .concat(Array.map(@characters) do |spr|
+                              spr.update
+                              spr.prefab
+                            end)
+                            .concat(@player.prefab)
+                            .flatten
+                            .map { |spr| @camera.to_screen_space!(spr.dup) }
 
       if @player.target
         @target_circle.update
@@ -215,5 +228,6 @@ module App
           )
       )
     end
+
   end
 end
