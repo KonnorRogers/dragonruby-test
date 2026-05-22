@@ -6,21 +6,9 @@ module App
       @camera = SpriteKit::Camera.new(path: :camera)
       @camera_updated = true
       @floating_text = App::UI::FloatingText.new(engine: self, path: @camera.path)
-      @player = Player.new(engine: self).tap do |player|
-        player.x = Grid.w / 2
-        player.y = Grid.h / 2
-        player.target_y = player.y
-        player.target_x = player.x
-        player.w = 18
-        player.h = 16
-        # player.hit_box = {
-        #   h: 16,
-        #   w: 18,
-        # }
-      end
       @tick_count = 0
       @target = nil
-      @target_circle = ::App::UI::Circle.new(type: :target)
+      @target_circle = ::App::UI::Circle.new(type: :target, blendmode_enum: 1)
       @characters = [
         Character.new(
           engine: self,
@@ -56,18 +44,29 @@ module App
       # y_end = y_start + 128
       size = 96
       @attack_button = ::App::UI::AttackCircle.new(w: size, h: size, x: (size * 2).from_right, y: size)
-      @building_menu = {
-      }
 
       @map = Map.new
 
+      @player = Player.new(engine: self).tap do |player|
+        player.x = @map.w / 2
+        player.y = @map.h / 2
+        player.target_y = player.y
+        player.target_x = player.x
+        player.w = 18 * 2
+        player.h = 16 * 2
+        # player.hit_box = {
+        #   h: 16,
+        #   w: 18,
+        # }
+      end
+
       @ui = {
         attack_button: @attack_button.to_a,
-        player_frame: player_frame,
-        enemy_frame: enemy_frame,
+        # player_frame: player_frame,
+        # enemy_frame: enemy_frame,
       }
 
-      # @radial_buttons = UI::RadialMenu.new(anchor: @attack_button, number_of_buttons: 5)
+      @radial_buttons = UI::RadialMenu.new(anchor: @attack_button, number_of_buttons: 5)
     end
 
     def tick(args)
@@ -83,9 +82,11 @@ module App
     end
 
     def input(args)
+      return if @map.generating?
+
       # Every frame we expect the player to move 1.25px. In total, this is 75px per second.
-      # speed = (@player.speed / 100) * (FPS / 45)
-      speed = 1.25
+      speed = (@player.speed / 100) * (FPS / 45) # * 10
+      # speed = 1.25
 
       if @inputs.up
         @player.target_y += speed
@@ -107,18 +108,28 @@ module App
         @player.state = :idle
       end
 
-      # @player.targeting_angle = @world_mouse.angle_from(@player)
+      @player.targeting_angle = @world_mouse.angle_from(@player)
+
+      if @inputs.keyboard.key_down.one
+        @player.active_spell = @player.spells.one
+      end
+
 
       if @inputs.mouse.buttons.left.click
         character = Geometry.find_intersect_rect(@world_mouse, @characters)
-        @player.target = character
-        if character
-          @target_circle.x = character.x - 2
-          @target_circle.y = character.y - 2
-          @target_circle.w = character.hit_box.w + 4
-          @target_circle.h = character.hit_box.h + 4
+        if @player.active_spell
+          @player.active_spell.cast(player: @player)
+          @player.active_spell = nil
         else
-          @player.state = :idle
+          @player.target = character
+          if character
+            @target_circle.x = character.x - 2
+            @target_circle.y = character.y - 2
+            @target_circle.w = character.hit_box.w + 4
+            @target_circle.h = character.hit_box.h + 4
+          else
+            @player.state = :idle
+          end
         end
       end
 
@@ -126,6 +137,8 @@ module App
     end
 
     def calc(args)
+      return if @map.generating?
+
       calc_player
       calc_camera
     end
@@ -147,15 +160,6 @@ module App
       # this is where we do collision.
       @player.x = @player.target_x
       @player.y = @player.target_y
-
-      if @player.target
-        @outputs.debug << @player.distance_from(@player.target).to_s
-        @outputs.debug << "OUT OF RANGE: #{@player.out_of_range?(@player.target)}"
-      end
-
-      if @player.target && @player.state == :attacking
-        @player.attack(@player.target)
-      end
     end
 
     def calc_camera
@@ -170,15 +174,20 @@ module App
     end
 
     def render(args)
+      if @map.generating?
+        @map.outputs = args.outputs
+        @map.tick_generate
+
+        # Loading bar here
+        return
+      end
+
       camera_rt = args.outputs[@camera_path]
       viewport = @camera.viewport
       camera_rt.w = viewport.w
       camera_rt.h = viewport.h
       camera_rt.background_color = [0,0,0,255]
 
-      args.outputs.debug << @camera.viewport.to_s
-
-      @map.bake_chunks(args)
       # if @camera_updated
       #   @viewport_tiles = @map.tiles_in_viewport(@camera).map do |tile|
       #     @camera.to_screen_space!(tile.dup)
@@ -187,28 +196,33 @@ module App
 
       @player.update
 
+      args.outputs.debug << "TILES: #{@map.tiles.keys.length}"
+
       screen_renderables = @map.chunks_in_viewport(@camera)
                             .concat(@map.objects_in_viewport(@camera))
-                            .concat(Array.map(@characters) do |spr|
-                              spr.update
-                              spr.prefab
-                            end)
-                            .concat(@player.prefab)
-                            .flatten
-                            .map { |spr| @camera.to_screen_space!(spr.dup) }
 
       if @player.target
         @target_circle.update
-        screen_renderables.unshift(@camera.to_screen_space!(@target_circle.dup))
+        screen_renderables << @target_circle
       end
 
       if @player.active_spell
+        @player.active_spell.update(player: @player, outputs: args.outputs)
         if @player.active_spell.indicator.is_a?(Array)
-          screen_renderables.unshift(*@player.active_spell.indicator.map { |spr| @camera.to_screen_space!(spr.dup) })
+          screen_renderables.concat(@player.active_spell.indicator)
         else
-          screen_renderables.unshift(@camera.to_screen_space!(@player.active_spell.indicator.dup))
+          screen_renderables.push(@camera.to_screen_space!(@player.active_spell.indicator.dup))
         end
       end
+
+      screen_renderables = screen_renderables
+        .concat(Array.map(@characters) do |spr|
+          spr.update
+          spr.prefab
+        end)
+        .concat(@player.prefab)
+        .flatten
+        .map { |spr| @camera.to_screen_space!(spr.dup) }
 
       args.outputs[@camera.path].primitives.concat(screen_renderables)
 
@@ -217,7 +231,7 @@ module App
           @camera.viewport,
         ]
           .concat(@ui.values.flatten)
-          # .concat(@radial_buttons.buttons)
+          .concat(@radial_buttons.buttons)
           .concat(@floating_text.flush(@camera))
           .concat(
             GTK.framerate_diagnostics_primitives.map do |primitive|

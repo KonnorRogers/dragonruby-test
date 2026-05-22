@@ -9,8 +9,11 @@ module App
     def chunk_key_to_cy(key)  key >> 16  end
 
     SPRITESHEET_PATH = "sprites/sunny_world/tileset/spr_tileset_sunnysideworld_16px.png"
+
     SPRITES = {
       grass: {
+        w: 16,
+        h: 16,
         source_x: 16,
         source_y: 960,
         source_h: 16,
@@ -18,6 +21,8 @@ module App
         path: SPRITESHEET_PATH
       },
       rock: {
+        w: 16,
+        h: 16,
         source_x: 496,
         source_y: 944,
         source_h: 16,
@@ -25,111 +30,245 @@ module App
         path: SPRITESHEET_PATH
       },
       silver: {
-        w: 32,
-        h: 32,
+        w: 96,
+        h: 96,
         source_x: 784,
         source_y: 656,
         source_h: 32,
         source_w: 32,
         path: SPRITESHEET_PATH
+      },
+      tree: {
+        w: 34 * 4,
+        h: 34 * 4,
+        source_x: 0,
+        source_y: 0,
+        source_h: 34,
+        source_w: 32,
+        path: "sprites/sunny_world/elements/plants/spr_deco_tree_01_strip4.png"
       }
     }
+
+    LEGEND = {
+      grass: SPRITES.grass,
+      rock:  SPRITES.rock,
+      silver: SPRITES.silver,
+      tree: SPRITES.tree,
+    }
+
 
     OBJECTS = [
       # { type: nil,   weight: 90 },
       { type: :rock, weight: 0.1, **SPRITES.rock  },
       { type: :silver, weight: 0.05, **SPRITES.silver },
+      { type: :tree, weight: 0.05, **SPRITES.tree },
       # { type: :twig, weight: 3  },
     ]
 
-    SCATTER_TOTAL = SCATTER.sum(&:weight)
+    SCATTER_TOTAL = OBJECTS.sum(&:weight)
     EMPTY_WEIGHT  = 100 - SCATTER_TOTAL # 92% chance of nothing
 
-    def roll_scatter
+    SCATTER_TABLE_SIZE = 10_000
+    SCATTER_TABLE = SCATTER_TABLE_SIZE.times.map do
       roll = rand * 100
-
-      return nil if roll < EMPTY_WEIGHT
-
-      roll -= EMPTY_WEIGHT
-      SCATTER.each do |e|
-        return e.type if roll < e.weight
-
-        roll -= e.weight
+      if roll < EMPTY_WEIGHT
+        nil
+      else
+        roll -= EMPTY_WEIGHT
+        result = nil
+        OBJECTS.each do |e|
+          if roll < e.weight
+            result = e.type
+            break
+          end
+          roll -= e.weight
+        end
+        result
       end
+    end.freeze
 
-      nil
+    def roll_scatter
+      SCATTER_TABLE[rand(SCATTER_TABLE_SIZE)]
+    end
+
+    def object_overlaps?(obj)
+      steps_x = [obj.w.idiv(@tile_size), 1].max
+      steps_y = [obj.h.idiv(@tile_size), 1].max
+      steps_x.times.any? do |dx|
+        steps_y.times.any? do |dy|
+          @occupied[chunk_key(obj.x + dx * @tile_size, obj.y + dy * @tile_size)]
+        end
+      end
     end
 
     # How many tiles per chunk side (16 tiles × 16px = 256px chunks)
     CHUNK_TILES = 16
 
-    attr_accessor :tiles, :tile_size
+    attr_accessor :tiles, :tile_size, :outputs, :w, :h
 
     def initialize(
-      w: 16 * 400,
-      h: 16 * 400,
+      w: 16 * 100,
+      h: 16 * 100,
+      save_directory: "data/saves/chunks",
       tile_size: 16
     )
+      @w = w
+      @h = h
+      @save_directory = save_directory
       @tile_size = tile_size
       @chunk_px = CHUNK_TILES * tile_size
-      rows = w.idiv(tile_size)
-      columns = h.idiv(tile_size)
-
+      @rows = w.idiv(tile_size)
+      @columns = h.idiv(tile_size)
       @tiles = {}
       @objects = {}
+      @generating_fiber = Fiber.new { fiber_generate }
+      @generating = true
+      @render_targets = {}
+      @outputs = nil
+      @largest_obj = OBJECTS.map { |o| [o[:w] || tile_size, o[:h] || tile_size].max }.max
+      @occupied = {}
 
-
-      rows.times do |x|
-        columns.times do |y|
-          hash = {
-            x: x * tile_size,
-            y: y * tile_size,
-            w: tile_size,
-            h: tile_size,
-          }
-          tile = SPRITES.grass.merge(hash)
-
-          sym = roll_scatter
-
-          if sym
-            object = SPRITES[sym].merge(hash)
-            @objects[chunk_key(tile.x, tile.y)] = object
-          end
-          @tiles[chunk_key(tile.x, tile.y)] = tile
-        end
-      end
-
-      @chunks_baked = false
+      # Used for generating the map, max number of milliseconds a method can take when generating
+      @max_elapsed_ms = 6
     end
 
-    # Call once from the render loop (needs args to write render textures).
-    # Safe to call every frame — bakes only on the first call.
-    def bake_chunks(args)
-      return if @chunks_baked
+    def generating?
+      @generating
+    end
 
-      # Group tiles by chunk coordinate
-      by_chunk = Hash.new { |h, k| h[k] = [] }
-      @tiles.each_value do |tile|
-        cx = tile.x.idiv(@chunk_px)
-        cy = tile.y.idiv(@chunk_px)
-        by_chunk[chunk_key(cx, cy)] << tile
+    def tick_generate
+      return if !generating?
+
+      if @generating_fiber.alive?
+        @generating_fiber.resume
+      else
+        @generating = false
       end
+    end
 
-      by_chunk.each do |key, chunk_tiles|
-        cx = chunk_key_to_cx(key)
-        cy = chunk_key_to_cy(key)
-        origin_x = cx * @chunk_px
-        origin_y = cy * @chunk_px
+    def fiber_generate
+      generation_start = current_time_ms
+      i = 0
 
-        rt = args.outputs["map_chunk_#{cx}_#{cy}"]
-        rt.w = @chunk_px
-        rt.h = @chunk_px
-        rt.sprites << chunk_tiles.map do |t|
-          t.merge(x: t.x - origin_x, y: t.y - origin_y)
+      @rows.times do |x|
+        @columns.times do |y|
+          tile_x = x * @tile_size
+          tile_y = y * @tile_size
+          k = chunk_key(tile_x, tile_y)
+
+          @tiles[k] = :grass
+
+          sym = roll_scatter
+          if sym
+            # overlap check needs w/h from legend
+            obj_sprite = LEGEND[sym]
+            obj = { x: tile_x, y: tile_y, w: obj_sprite.w || @tile_size, h: obj_sprite.h || @tile_size }
+            if !object_overlaps?(obj)
+              @objects[k] = sym
+              add_object(obj)
+            end
+          end
+
+          i += 1
+          if i >= 500          # check time every 500 tiles instead of every tile
+            i = 0
+            if current_time_ms - generation_start >= @max_elapsed_ms
+              Fiber.yield
+              generation_start = current_time_ms
+            end
+          end
         end
       end
 
-      @chunks_baked = true
+      bake_chunks
+      @generating = false
+    end
+
+    def add_object(obj)
+      steps_x = [obj.w.idiv(@tile_size), 1].max
+      steps_y = [obj.h.idiv(@tile_size), 1].max
+      steps_x.times do |dx|
+        steps_y.times do |dy|
+          @occupied[chunk_key(obj.x + (dx * @tile_size), obj.y + (dy * @tile_size))] = true
+        end
+      end
+    end
+
+    def remove_object(obj)
+      steps_x = [obj.w.idiv(@tile_size), 1].max
+      steps_y = [obj.h.idiv(@tile_size), 1].max
+      steps_x.times do |dx|
+        steps_y.times do |dy|
+          @occupied.delete(chunk_key(obj.x + (dx * @tile_size), obj.y + (dy * @tile_size)))
+        end
+      end
+    end
+
+    def current_time_ms
+      (Time.now.to_f * 1000).to_i
+    end
+
+    def bake_chunks
+      generation_start = current_time_ms
+      i = 0
+
+      by_chunk = Hash.new { |h, k| h[k] = [] }
+      @tiles.each_key do |tile_key|
+        px = chunk_key_to_cx(tile_key)
+        py = chunk_key_to_cy(tile_key)
+        cx = px.idiv(@chunk_px)
+        cy = py.idiv(@chunk_px)
+        by_chunk[chunk_key(cx, cy)] << tile_key
+
+        i += 1
+        if i >= 500
+          i = 0
+          if current_time_ms - generation_start >= @max_elapsed_ms
+            Fiber.yield
+            generation_start = current_time_ms
+          end
+        end
+      end
+
+      by_chunk.each do |key, tile_keys|
+        bake_chunk(key, tile_keys)
+        if current_time_ms - generation_start >= @max_elapsed_ms
+          Fiber.yield
+          generation_start = current_time_ms
+        end
+      end
+    end
+
+    def bake_chunk(key, chunk_tiles)
+      cx = chunk_key_to_cx(key)
+      cy = chunk_key_to_cy(key)
+      origin_x = cx * @chunk_px
+      origin_y = cy * @chunk_px
+
+      key = "map_chunk_#{cx}_#{cy}"
+      rt = @outputs[key]
+      @render_targets[key] = rt
+      rt.w = @chunk_px
+      rt.h = @chunk_px
+      chunked_tiles = []
+      Array.each(chunk_tiles) do |tile_key|
+        # chunked_tiles << t.merge(x: t.x - origin_x, y: t.y - origin_y)
+        sym = @tiles[tile_key]
+        sprite = LEGEND[sym]
+        x = chunk_key_to_cx(tile_key)  # pixel x
+        y = chunk_key_to_cy(tile_key)  # pixel y
+
+        chunked_tiles << LEGEND[sym].merge(
+          x: x - origin_x,
+          y: y - origin_y,
+          w: sprite.w,
+          h: sprite.h,
+        )
+      end
+
+      if chunked_tiles.length > 0
+        rt.sprites.concat(chunked_tiles)
+      end
     end
 
     # Returns one sprite per visible chunk instead of one per tile.
@@ -144,16 +283,25 @@ module App
 
       result = []
       cx = min_cx
+      hash = {
+        x: nil,
+        y: nil,
+        w: @chunk_px,
+        h: @chunk_px,
+        path: nil
+      }
+
       while cx <= max_cx
         cy = min_cy
         while cy <= max_cy
-          result << {
-            x: cx * @chunk_px,
-            y: cy * @chunk_px,
-            w: @chunk_px,
-            h: @chunk_px,
-            path: "map_chunk_#{cx}_#{cy}"
-          }
+          key = "map_chunk_#{cx}_#{cy}"
+          if @render_targets[key]
+            h = hash.dup
+            h.x = cx * @chunk_px
+            h.y = cy * @chunk_px
+            h.path = key
+            result << h
+          end
           cy += 1
         end
         cx += 1
@@ -161,21 +309,24 @@ module App
       result
     end
 
-    def __in_viewport__(camera, hash:)
+    def __in_viewport__(camera, hash:, largest_tile:)
       world = camera.to_world_space!(camera.viewport.dup)
 
-      min_x = (world.x / @tile_size).floor * @tile_size
-      min_y = (world.y / @tile_size).floor * @tile_size
-      max_x = min_x + world.w.ceil + @tile_size
-      max_y = min_y + world.h.ceil + @tile_size
+      min_x = ((world.x - largest_tile) / @tile_size).floor * @tile_size
+      min_y = ((world.y - largest_tile) / @tile_size).floor * @tile_size
+      max_x = world.x + world.w + largest_tile
+      max_y = world.y + world.h + largest_tile
 
       result = []
       x = min_x
       while x <= max_x
         y = min_y
         while y <= max_y
-          tile = hash[chunk_key(x, y)]
-          result << tile if tile
+          sym = hash[chunk_key(x, y)]
+          if sym
+            sprite = LEGEND[sym]
+            result << sprite.merge(x: x, y: y)
+          end
           y += @tile_size
         end
         x += @tile_size
@@ -184,11 +335,64 @@ module App
     end
 
     def objects_in_viewport(camera)
-      __in_viewport__(camera, hash: @objects)
+      __in_viewport__(camera, hash: @objects, largest_tile: @largest_obj)
     end
 
     def tiles_in_viewport(camera)
-      __in_viewport__(camera, hash: @tiles)
+      __in_viewport__(camera, hash: @tiles, largest_tile: @tile_size)
+    end
+
+    def chunk_file(cx, cy)
+      "#{@save_directory}/chunk_#{cx}_#{cy}.dat"
+    end
+
+    def save_chunk(cx, cy)
+      tiles = {}
+      @tiles.each do |k, sym|
+        px = chunk_key_to_cx(k)
+        py = chunk_key_to_cy(k)
+        tiles[k] = sym if px.idiv(@chunk_px) == cx && py.idiv(@chunk_px) == cy
+      end
+
+      objects = {}
+      @objects.each do |k, sym|
+        px = chunk_key_to_cx(k)
+        py = chunk_key_to_cy(k)
+        objects[k] = sym if px.idiv(@chunk_px) == cx && py.idiv(@chunk_px) == cy
+      end
+
+      $gtk.serialize_state(chunk_file(cx, cy), { tiles: tiles, objects: objects })
+    end
+
+    def load_chunk(cx, cy)
+      raw = $gtk.read_file(chunk_file(cx, cy))
+      if raw
+        data = $gtk.deserialize_state(chunk_file(cx, cy))
+        @tiles.merge!(data.tiles)
+        @objects.merge!(data.objects)
+      else
+        generate_chunk(cx, cy)   # first visit — procedurally generate
+      end
+
+      bake_chunk(cx, cy)   # re-render the RT for this chunk
+    end
+
+    def unload_chunk(cx, cy)
+      save_chunk(cx, cy)
+
+      # Evict tiles + objects from memory
+      origin_x = cx * @chunk_px
+      origin_y = cy * @chunk_px
+      CHUNK_TILES.times do |dx|
+        CHUNK_TILES.times do |dy|
+          k = chunk_key(origin_x + dx * @tile_size, origin_y + dy * @tile_size)
+          @tiles.delete(k)
+          @objects.delete(k)
+        end
+      end
+
+      # Drop the render texture
+      @render_targets.delete("map_chunk_#{cx}_#{cy}")
     end
   end
 end

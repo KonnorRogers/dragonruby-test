@@ -10,21 +10,21 @@ module App
 
       @engine = engine
       @state = :idle
-      @health_bar = {
-        background: App::UI::Bar.new(type: :enemy, a: 64),
-        outline: App::UI::Bar.new(type: :outline),
-        fill: App::UI::Bar.new(type: :enemy),
-        label: {
-          anchor_x: 0.5,
-          anchor_y: 0.5,
-          r: 255,
-          g: 255,
-          b: 255,
-          x: @x,
-          y: @y,
-          text: "",
-        }
-      }
+      # @health_bar = {
+      #   background: App::UI::Bar.new(type: :enemy, a: 64),
+      #   outline: App::UI::Bar.new(type: :outline),
+      #   fill: App::UI::Bar.new(type: :enemy),
+      #   label: {
+      #     anchor_x: 0.5,
+      #     anchor_y: 0.5,
+      #     r: 255,
+      #     g: 255,
+      #     b: 255,
+      #     x: @x,
+      #     y: @y,
+      #     text: "",
+      #   }
+      # }
 
       @max_hp = 100
       @current_hp = @max_hp
@@ -50,13 +50,13 @@ module App
         ary << self
       end
 
-      @health_bar.each do |k, v|
-        if k == :label
-          ary << v
-        else
-          ary << v.prefab
-        end
-      end
+      # @health_bar.each do |k, v|
+      #   if k == :label
+      #     ary << v
+      #   else
+      #     ary << v.prefab
+      #   end
+      # end
       ary
     end
 
@@ -76,7 +76,7 @@ module App
     end
 
     def update_health_bar
-      # return if !@health_bar
+      return if !@health_bar
       return if !@x || !@y || !@w || !@h
 
       height = 16

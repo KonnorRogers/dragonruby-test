@@ -55,7 +55,7 @@ module App
               # anchor_y: 0.5,
               a: 128,
               angle: angle,
-              blendmode_enum: 0,
+              blendmode_enum: 1,
               path: path,
             }
           ]
