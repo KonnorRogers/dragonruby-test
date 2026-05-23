@@ -27,8 +27,8 @@ module SpriteKit
           }
         },
         gap_button: {
-          id: :gap,
-          label: proc { { id: :gap, text: (@state.current_sprite.prefab ? "Add gap" : "Remove Gap") } },
+          id: :gap_button,
+          label: proc { { id: :gap_button, text: (@state.current_sprite.prefab ? "Add gap" : "Remove Gap") } },
           handle_click: proc {
             current_sprite = @state.current_sprite
 
@@ -44,7 +44,9 @@ module SpriteKit
           label: proc { { id: :copy_to_clipboard, text: "Copy to clipboard" } },
           handle_click: proc {
             str = SpriteMethods.serialize_sprite(@state.current_sprite, :ruby)
+            str = str.slice(2..-4) + ","
             GTK.exec("echo \"#{str}\" | pbcopy")
+            # DR.misc_ffi.set_clipboard(str)
           }
         },
         # save_format: {

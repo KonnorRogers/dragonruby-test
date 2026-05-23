@@ -37,6 +37,7 @@ module Main
   end
 
   def reset(args)
+    GTK.reset_sprites
     @game = nil
   end
 end

@@ -2,7 +2,13 @@ module App
   class Engine
     attr_accessor :player, :engine, :characters, :floating_text, :tick_count
 
+    # Which chunks should be active? Add a 1-chunk border as buffer.
+    CHUNK_LOAD_RADIUS = 2  # chunks around the visible area
+
+
     def initialize
+      @loaded_chunks = {}
+      @debug = true
       @camera = SpriteKit::Camera.new(path: :camera)
       @camera_updated = true
       @floating_text = App::UI::FloatingText.new(engine: self, path: @camera.path)
@@ -19,6 +25,7 @@ module App
           h: 32,
         )
       ]
+
 
       @buttons = {
 
@@ -92,19 +99,31 @@ module App
         @player.target_y += speed
         @player.direction = :up
         @player.state = :walking
-      elsif @inputs.down
+      end
+
+      if @inputs.down
         @player.target_y -= speed
         @player.direction = :down
         @player.state = :walking
-      elsif @inputs.right
+      end
+
+      if @inputs.right
         @player.target_x += speed
         @player.direction = :right
         @player.state = :walking
-      elsif @inputs.left
+      end
+
+      if @inputs.left
         @player.target_x -= speed
         @player.direction = :left
         @player.state = :walking
-      else
+      end
+
+      if @inputs.keyboard.key_down.period
+        @debug = !@debug
+      end
+
+      if !@inputs.down && !@inputs.up && !@inputs.left && !@inputs.right
         @player.state = :idle
       end
 
@@ -139,6 +158,34 @@ module App
     def calc(args)
       return if @map.generating?
 
+      update_loaded_chunks
+
+      @objects_in_viewport = @map.objects_in_viewport(@camera)
+
+      @collision_in_viewport = []
+
+      Array.each(@objects_in_viewport) do |obj|
+        if obj.collision
+          obj = obj.dup
+          obj.x = obj.x + obj.collision.x
+          obj.y = obj.y + obj.collision.y
+          obj.w = obj.h + obj.collision.w
+          obj.h = obj.h + obj.collision.h
+          @collision_in_viewport << obj
+        end
+      end
+
+      if @debug
+        @collision_in_viewport.each do |obj|
+          obj.path = :solid
+          obj.r = 255
+          obj.a = 128
+          obj.b = 0
+          obj.g = 0
+          @objects_in_viewport << obj
+        end
+      end
+
       calc_player
       calc_camera
     end
@@ -158,19 +205,75 @@ module App
 
     def calc_player
       # this is where we do collision.
+      diff_x = @player.x - @player.target_x
+      diff_y = @player.y - @player.target_y
+
       @player.x = @player.target_x
+
+      collision_x = Geometry.find_intersect_rect(@player.collision, @collision_in_viewport)
+
+      if collision_x
+        @player.x = @player.x + diff_x
+      end
+
       @player.y = @player.target_y
+
+      collision_y = Geometry.find_intersect_rect(@player.collision, @collision_in_viewport)
+      if collision_y
+        @player.y = @player.y + diff_y
+      end
+
+      @player.target_x = @player.x
+      @player.target_y = @player.y
     end
 
     def calc_camera
-      @camera.target_x = @player.target_x
-      @camera.target_y = @player.target_y
+      @camera.target_x = @player.x
+      @camera.target_y = @player.y
 
       @camera_updated = (@camera.target_x > 0 || @camera.target_y > 0 || @camera.target_scale > 0)
 
       @camera.scale += (@camera.target_scale - @camera.scale)
       @camera.x += (@camera.target_x - @camera.x)
       @camera.y += (@camera.target_y - @camera.y)
+    end
+
+    def update_loaded_chunks
+      # chunk_px = Map::CHUNK_TILES * @map.tile_size
+      # world = @camera.to_world_space!(@camera.viewport.dup)
+
+      # min_cx = (world.x / chunk_px).floor - CHUNK_LOAD_RADIUS
+      # min_cy = (world.y / chunk_px).floor - CHUNK_LOAD_RADIUS
+      # max_cx = ((world.x + world.w) / chunk_px).ceil + CHUNK_LOAD_RADIUS
+      # max_cy = ((world.y + world.h) / chunk_px).ceil + CHUNK_LOAD_RADIUS
+
+      # needed = {}
+      # min_cx.upto(max_cx) do |cx|
+      #   min_cy.upto(max_cy) do |cy|
+      #     key = @map.chunk_key(cx, cy)
+      #     needed[key] = [cx, cy]
+      #   end
+      # end
+
+      # needed.each do |key, (cx, cy)|
+      #   unless @loaded_chunks[key]
+      #     @map.load_chunk(cx, cy)
+      #     @loaded_chunks[key] = true
+      #   end
+      # end
+
+      # @loaded_chunks.keys.each do |key|
+      #   unless needed[key]
+      #     cx = @map.chunk_key_to_cx(key)
+      #     cy = @map.chunk_key_to_cy(key)
+      #     @map.unload_chunk(cx, cy)
+      #     @loaded_chunks.delete(key)
+      #   end
+      # end
+
+      # if @tick_count % (60 * 5) == 0
+      #   @map.save_dirty_chunks
+      # end
     end
 
     def render(args)
@@ -198,8 +301,7 @@ module App
 
       args.outputs.debug << "TILES: #{@map.tiles.keys.length}"
 
-      screen_renderables = @map.chunks_in_viewport(@camera)
-                            .concat(@map.objects_in_viewport(@camera))
+      screen_renderables = @objects_in_viewport
 
       if @player.target
         @target_circle.update
@@ -215,16 +317,25 @@ module App
         end
       end
 
+      debug_renderables = []
+
+      if @debug
+        debug_renderables << @player.collision.merge({ path: :solid, r: 255, b: 0, g: 0, a: 128 })
+      end
+
       screen_renderables = screen_renderables
         .concat(Array.map(@characters) do |spr|
           spr.update
           spr.prefab
         end)
         .concat(@player.prefab)
+        .concat(debug_renderables)
         .flatten
         .map { |spr| @camera.to_screen_space!(spr.dup) }
 
-      args.outputs[@camera.path].primitives.concat(screen_renderables)
+      args.outputs[@camera.path].primitives
+        .concat(@map.chunks_in_viewport(@camera).map { |spr| @camera.to_screen_space!(spr.dup) })
+        .concat(screen_renderables)
 
       args.outputs.primitives.concat(
         [

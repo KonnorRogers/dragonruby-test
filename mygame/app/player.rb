@@ -107,6 +107,15 @@ module App
       update_sprite
     end
 
+    def collision
+      {
+        x: @x + 4,
+        y: @y + 4,
+        w: @w - 8,
+        h: @h - 8,
+      }
+    end
+
     def update_sprite
       super()
 
