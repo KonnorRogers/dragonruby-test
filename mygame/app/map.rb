@@ -105,7 +105,7 @@ module App
       { name: :tree, weight: 0.05, **SPRITES.tree },
       { name: :berry_bush, weight: 0.05, **SPRITES.berry_bush },
       { name: :twig, weight: 0.1, **SPRITES.twig  },
-      { name: :bear, weight: 0.1, **SPRITES.bear }
+      { name: :bear, weight: 0.01, **SPRITES.bear }
     ]
 
     SCATTER_TOTAL = OBJECTS.sum(&:weight)
@@ -153,12 +153,14 @@ module App
     attr_accessor :tiles, :tile_size, :outputs, :w, :h
 
     def initialize(
+      engine:,
       w: 16 * 1000,
       h: 16 * 1000,
       save_directory: "data/saves/chunks",
       tile_size: 16,
       seed: rand(1_000_000_000)
     )
+      @engine = engine
       @w = w
       @h = h
       @save_directory = save_directory
@@ -181,12 +183,11 @@ module App
 
       existing = $gtk.read_file("#{@save_directory}/complete.dat")
 
-
       if existing
         saved = $gtk.deserialize_state("#{@save_directory}/complete.dat")
         @seed = saved[:seed]
         @generating = false
-        @generating_fiber = Fiber.new { fiber_load }
+        @generating_fiber = nil
       else
         @seed = seed
         clear_chunk_saves
@@ -244,9 +245,9 @@ module App
     #     cy = parts[1].to_i
     #     load_chunk(cx, cy)
 
-    #     if current_time_ms - load_start >= @max_elapsed_ms
+    #     if App.current_time_ms - load_start >= @max_elapsed_ms
     #       Fiber.yield
-    #       load_start = current_time_ms
+    #       load_start = App.current_time_ms
     #     end
     #   end
 
@@ -254,7 +255,7 @@ module App
     # end
 
     def fiber_generate
-      generation_start = current_time_ms
+      generation_start = App.current_time_ms
       i = 0
 
       @rows.times do |x|
@@ -264,9 +265,9 @@ module App
           i += 1
           if i >= 500          # check time every 500 tiles instead of every tile
             i = 0
-            if current_time_ms - generation_start >= @max_elapsed_ms
+            if App.current_time_ms - generation_start >= @max_elapsed_ms
               Fiber.yield
-              generation_start = current_time_ms
+              generation_start = App.current_time_ms
             end
           end
         end
@@ -303,9 +304,9 @@ module App
       if sym
         # overlap check needs w/h from legend
         obj_sprite = SPRITES[sym]
-        obj = { x: tile_x, y: tile_y, w: obj_sprite.w || @tile_size, h: obj_sprite.h || @tile_size }
+        obj = { type: sym, x: tile_x, y: tile_y, w: obj_sprite.w || @tile_size, h: obj_sprite.h || @tile_size }
         if !object_overlaps?(obj)
-          @objects[k] = sym
+          @objects[k] = obj
           add_object(obj)
         end
       end
@@ -332,12 +333,8 @@ module App
       end
     end
 
-    def current_time_ms
-      (Time.now.to_f * 1000).to_i
-    end
-
     def save_chunks
-      generation_start = current_time_ms
+      generation_start = App.current_time_ms
       i = 0
 
       by_chunk = Hash.new { |h, k| h[k] = [] }
@@ -351,9 +348,9 @@ module App
         i += 1
         if i >= 500
           i = 0
-          if current_time_ms - generation_start >= @max_elapsed_ms
+          if App.current_time_ms - generation_start >= @max_elapsed_ms
             Fiber.yield
-            generation_start = current_time_ms
+            generation_start = App.current_time_ms
           end
         end
       end
@@ -363,9 +360,9 @@ module App
         cx = chunk_key_to_cx(key)
         cy = chunk_key_to_cy(key)
         save_chunk(cx, cy)
-        if current_time_ms - generation_start >= @max_elapsed_ms
+        if App.current_time_ms - generation_start >= @max_elapsed_ms
           Fiber.yield
-          generation_start = current_time_ms
+          generation_start = App.current_time_ms
         end
       end
     end
@@ -440,7 +437,7 @@ module App
       result
     end
 
-    def __in_viewport__(camera, hash:, largest_tile:)
+    def __in_viewport__(camera, hash:, largest_tile:, engine: nil)
       world = camera.to_world_space!(camera.viewport.dup)
 
       min_x = ((world.x - largest_tile) / @tile_size).floor * @tile_size
@@ -453,11 +450,11 @@ module App
       while x <= max_x
         y = min_y
         while y <= max_y
-          sym = hash[chunk_key(x, y)]
-          if sym
-            sprite = SPRITES[sym]
-            result << sprite.merge(x: x, y: y)
-          end
+          value = hash[chunk_key(x, y)]
+
+          obj = build_object(value)
+          result << obj if obj
+
           y += @tile_size
         end
         x += @tile_size
@@ -465,8 +462,8 @@ module App
       result
     end
 
-    def objects_in_viewport(camera)
-      __in_viewport__(camera, hash: @objects, largest_tile: @largest_obj)
+    def objects_in_viewport(camera, engine:)
+      __in_viewport__(camera, hash: @objects, largest_tile: @largest_obj, engine: engine)
     end
 
     def tiles_in_viewport(camera)
@@ -491,7 +488,7 @@ module App
         end
       end
 
-      $gtk.serialize_state(chunk_file(cx, cy), { tiles: tiles, objects: objects })
+      $gtk.serialize_state(chunk_file(cx, cy), { tiles: tiles, objects: objects, })
     end
 
     def load_chunk(cx, cy)
@@ -501,14 +498,14 @@ module App
       if raw
         data = $gtk.deserialize_state(path)
         @tiles.merge!(data[:tiles])
-        @objects.merge!(data[:objects])
 
-        # Reconstruct occupied set so collision stays valid
-        data[:objects].each do |k, sym|
-          x = chunk_key_to_cx(k)
-          y = chunk_key_to_cy(k)
-          sprite = SPRITES[sym]
-          add_object({ x: x, y: y, w: sprite.w, h: sprite.h })
+        data[:objects].each do |key, obj|
+          spr = SPRITES[obj.type]
+          @objects[key] = build_object({engine: @engine, **spr, **obj})
+          x = chunk_key_to_cx(key)
+          y = chunk_key_to_cy(key)
+          # Reconstruct occupied set so collision stays valid
+          add_object({ x: x, y: y, w: obj.w, h: obj.h })
         end
       else
         # We don't do this because this is for an "infinite" world.
@@ -568,6 +565,21 @@ module App
       files.each do |filename|
         $gtk.delete_file("#{@save_directory}/#{filename}")
       end
+    end
+
+    def build_object(value)
+      if value.is_a?(Symbol)
+        return SPRITES[value]
+      elsif value.is_a?(Hash)
+        sprite = SPRITES[value.type]
+        if value.type == :bear
+          return Enemy.new(engine: @engine, **sprite, x: value.x, y: value.y)
+        else
+          return Character.new(engine: @engine, **sprite, x: value.x, y: value.y)
+        end
+      end
+
+      value
     end
   end
 end

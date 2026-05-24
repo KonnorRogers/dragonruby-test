@@ -47,7 +47,7 @@ module App
 
       def update(label, camera)
         anchor = label.anchor
-        size_px = 16
+        size_px = 44
         if anchor && size_px
           size_px = size_px * camera.scale
           anchor = camera.to_screen_space!(anchor.dup)

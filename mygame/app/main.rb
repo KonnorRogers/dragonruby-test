@@ -1,5 +1,9 @@
 module App
   FPS = 60
+
+  def self.current_time_ms
+    (Time.now.to_f * 1000).to_i
+  end
 end
 
 require "vendor/sprite_kit/sprite_kit.rb"

@@ -1,6 +1,6 @@
 module App
   class Engine
-    attr_accessor :player, :engine, :characters, :floating_text, :tick_count
+    attr_accessor :player, :engine, :floating_text, :tick_count, :debug
 
     # Which chunks should be active? Add a 1-chunk border as buffer.
     CHUNK_LOAD_RADIUS = 2  # chunks around the visible area
@@ -8,6 +8,8 @@ module App
 
     def initialize
       @loaded_chunks = {}
+      @initial_chunk_load = Fiber.new { update_loaded_chunks(fiber: true) }
+      @initial_chunks_loaded = false
       @debug = true
       @camera = SpriteKit::Camera.new(path: :camera)
       @camera_updated = true
@@ -15,17 +17,6 @@ module App
       @tick_count = 0
       @target = nil
       @target_circle = ::App::UI::Circle.new(type: :target, blendmode_enum: 1)
-      @characters = [
-        Character.new(
-          engine: self,
-          **App::ENEMIES[:hyena],
-          x: 300,
-          y: 300,
-          w: 32,
-          h: 32,
-        )
-      ]
-
 
       @buttons = {
 
@@ -52,7 +43,7 @@ module App
       size = 96
       @attack_button = ::App::UI::AttackCircle.new(w: size, h: size, x: (size * 2).from_right, y: size)
 
-      @map = Map.new
+      @map = Map.new(engine: self)
 
       @player = Player.new(engine: self).tap do |player|
         player.x = @map.w / 2
@@ -74,6 +65,11 @@ module App
       }
 
       @radial_buttons = UI::RadialMenu.new(anchor: @attack_button, number_of_buttons: 5)
+      @max_elapsed_ms = 6
+    end
+
+    def loading?
+      @map.generating? || !@initial_chunks_loaded
     end
 
     def tick(args)
@@ -90,7 +86,7 @@ module App
     end
 
     def input(args)
-      return if @map.generating?
+      return if loading?
 
       # Every frame we expect the player to move 1.25px. In total, this is 75px per second.
       speed = (@player.speed / 100) * (FPS / 45) # * 10
@@ -136,7 +132,7 @@ module App
 
 
       if @inputs.mouse.buttons.left.click
-        character = Geometry.find_intersect_rect(@world_mouse, @characters)
+        character = Geometry.find_intersect_rect(@world_mouse, @objects_in_viewport)
         if @player.active_spell
           @player.active_spell.cast(player: @player)
           @player.active_spell = nil
@@ -157,33 +153,22 @@ module App
     end
 
     def calc(args)
-      return if @map.generating?
+      return if loading?
 
       update_loaded_chunks
 
-      @objects_in_viewport = @map.objects_in_viewport(@camera)
+      @objects_in_viewport = @map.objects_in_viewport(@camera, engine: self)
 
       @collision_in_viewport = []
 
       Array.each(@objects_in_viewport) do |obj|
-        if obj.collision
+        if obj&.collision
           obj = obj.dup
           obj.x = obj.x + obj.collision.x
           obj.y = obj.y + obj.collision.y
           obj.w = obj.h + obj.collision.w
           obj.h = obj.h + obj.collision.h
           @collision_in_viewport << obj
-        end
-      end
-
-      if @debug
-        @collision_in_viewport.each do |obj|
-          obj.path = :solid
-          obj.r = 255
-          obj.a = 128
-          obj.b = 0
-          obj.g = 0
-          @objects_in_viewport << obj
         end
       end
 
@@ -239,7 +224,21 @@ module App
       @camera.y += (@camera.target_y - @camera.y)
     end
 
-    def update_loaded_chunks
+    def update_loaded_chunks(fiber: false)
+      i = 0
+      generation_start = App.current_time_ms
+
+      fiber_yield = proc {
+        i += 1
+        if i >= 500
+          i = 0
+          if App.current_time_ms - generation_start >= @max_elapsed_ms
+            Fiber.yield
+            generation_start = App.current_time_ms
+          end
+        end
+      }
+
       chunk_px = Map::CHUNK_TILES * @map.tile_size
       world = @camera.to_world_space!(@camera.viewport.dup)
 
@@ -253,6 +252,8 @@ module App
         min_cy.upto(max_cy) do |cy|
           key = @map.chunk_key(cx, cy)
           needed[key] = [cx, cy]
+
+          fiber_yield.call if fiber
         end
       end
 
@@ -261,6 +262,8 @@ module App
           @map.load_chunk(cx, cy)
           @loaded_chunks[key] = true
         end
+
+        fiber_yield.call if fiber
       end
 
       @loaded_chunks.keys.each do |key|
@@ -270,6 +273,8 @@ module App
           @map.unload_chunk(cx, cy)
           @loaded_chunks.delete(key)
         end
+
+        fiber_yield.call if fiber
       end
 
       if @tick_count % (60 * 5) == 0
@@ -282,6 +287,11 @@ module App
         @map.tick_generate
 
         # Loading bar here
+        return
+      end
+
+      if !@initial_chunks_loaded
+        load_initial_chunks
         return
       end
 
@@ -301,7 +311,8 @@ module App
 
       args.outputs.debug << "TILES: #{@map.tiles.keys.length}"
 
-      screen_renderables = @objects_in_viewport
+      screen_renderables = @objects_in_viewport.flat_map(&:prefab)
+      Array.each(@objects_in_viewport) { |obj| obj.update }
 
       if @player.target
         @target_circle.update
@@ -320,14 +331,18 @@ module App
       debug_renderables = []
 
       if @debug
+        @collision_in_viewport.each do |obj|
+          obj.path = :solid
+          obj.r = 255
+          obj.a = 128
+          obj.b = 0
+          obj.g = 0
+          debug_renderables << obj
+        end
         debug_renderables << @player.collision.merge({ path: :solid, r: 255, b: 0, g: 0, a: 128 })
       end
 
       screen_renderables = screen_renderables
-        .concat(Array.map(@characters) do |spr|
-          spr.update
-          spr.prefab
-        end)
         .concat(@player.prefab)
         .concat(debug_renderables)
         .flatten
@@ -352,6 +367,14 @@ module App
             end
           )
       )
+    end
+
+    def load_initial_chunks
+      if @initial_chunk_load&.alive?
+        @initial_chunk_load.resume
+      else
+        @initial_chunks_loaded = true
+      end
     end
 
   end
