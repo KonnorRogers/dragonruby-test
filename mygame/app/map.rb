@@ -61,7 +61,13 @@ module App
         source_y: 944,
         source_h: 32,
         source_w: 32,
-        path: "sprites/sunny_world/tileset/spr_tileset_sunnysideworld_16px.png"
+        path: "sprites/sunny_world/tileset/spr_tileset_sunnysideworld_16px.png",
+        collision: {
+          x: 6,
+          y: 8,
+          h: -14,
+          w: -12
+        }
       },
       twig: {
         scale: 2,
@@ -173,22 +179,22 @@ module App
       # Used for generating the map, max number of milliseconds a method can take when generating
       @max_elapsed_ms = 6
 
-      # existing = $gtk.read_file("#{@save_directory}/complete.dat")
+      existing = $gtk.read_file("#{@save_directory}/complete.dat")
 
-      # if existing
-      #   saved = $gtk.deserialize_state("#{@save_directory}/complete.dat")
-      #   @seed = saved[:seed]
-      #   # World already exists on disk — chunks loaded on demand
-      #   @generating = false
-      #   @generating_fiber = nil
-      # else
+
+      if existing
+        saved = $gtk.deserialize_state("#{@save_directory}/complete.dat")
+        @seed = saved[:seed]
+        @generating = false
+        @generating_fiber = Fiber.new { fiber_load }
+      else
         @seed = seed
-        @random = Random.new(@seed)
         clear_chunk_saves
         @generating_fiber = Fiber.new { fiber_generate }
         @generating = true
-      # end
+      end
 
+      @random = Random.new(@seed)
       @scatter_table = build_scatter_table
     end
 
@@ -213,7 +219,7 @@ module App
     end
 
     def generating?
-      @generating
+      !!@generating
     end
 
     def tick_generate
@@ -225,6 +231,27 @@ module App
         @generating = false
       end
     end
+
+    # loads everything
+    # def fiber_load
+    #   load_start = current_time_ms
+
+    #   files = $gtk.list_files(@save_directory)
+    #   files.each do |filename|
+    #     next unless filename.start_with?("chunk_")
+    #     parts = filename.gsub("chunk_", "").gsub(".dat", "").split("_")
+    #     cx = parts[0].to_i
+    #     cy = parts[1].to_i
+    #     load_chunk(cx, cy)
+
+    #     if current_time_ms - load_start >= @max_elapsed_ms
+    #       Fiber.yield
+    #       load_start = current_time_ms
+    #     end
+    #   end
+
+    #   @generating = false
+    # end
 
     def fiber_generate
       generation_start = current_time_ms
@@ -245,9 +272,11 @@ module App
         end
       end
 
-      bake_chunks
+      save_chunks
+      @tiles.clear
+      @objects.clear
       @generating = false
-      # $gtk.serialize_state("#{@save_directory}/complete.dat", { complete: true, seed: @seed })
+      $gtk.serialize_state("#{@save_directory}/complete.dat", { complete: true, seed: @seed })
     end
 
     def generate_chunk(cx, cy)
@@ -307,7 +336,7 @@ module App
       (Time.now.to_f * 1000).to_i
     end
 
-    def bake_chunks
+    def save_chunks
       generation_start = current_time_ms
       i = 0
 
@@ -330,7 +359,7 @@ module App
       end
 
       by_chunk.each do |key, tile_keys|
-        bake_chunk(key, tile_keys)
+        # bake_chunk(key, tile_keys)
         cx = chunk_key_to_cx(key)
         cy = chunk_key_to_cy(key)
         save_chunk(cx, cy)
@@ -449,27 +478,25 @@ module App
     end
 
     def save_chunk(cx, cy)
-      # tiles = {}
-      # @tiles.each do |k, sym|
-      #   px = chunk_key_to_cx(k)
-      #   py = chunk_key_to_cy(k)
-      #   tiles[k] = sym if px.idiv(@chunk_px) == cx && py.idiv(@chunk_px) == cy
-      # end
+      origin_x = cx * @chunk_px
+      origin_y = cy * @chunk_px
 
-      # objects = {}
-      # @objects.each do |k, sym|
-      #   px = chunk_key_to_cx(k)
-      #   py = chunk_key_to_cy(k)
-      #   objects[k] = sym if px.idiv(@chunk_px) == cx && py.idiv(@chunk_px) == cy
-      # end
+      tiles = {}
+      objects = {}
+      CHUNK_TILES.times do |dx|
+        CHUNK_TILES.times do |dy|
+          k = chunk_key(origin_x + dx * @tile_size, origin_y + dy * @tile_size)
+          tiles[k] = @tiles[k] if @tiles[k]
+          objects[k] = @objects[k] if @objects[k]
+        end
+      end
 
-      # $gtk.serialize_state(chunk_file(cx, cy), { tiles: tiles, objects: objects })
+      $gtk.serialize_state(chunk_file(cx, cy), { tiles: tiles, objects: objects })
     end
 
     def load_chunk(cx, cy)
       path = chunk_file(cx, cy)
-      # raw  = $gtk.read_file(path)
-      raw = nil
+      raw  = $gtk.read_file(path)
 
       if raw
         data = $gtk.deserialize_state(path)
@@ -484,21 +511,12 @@ module App
           add_object({ x: x, y: y, w: sprite.w, h: sprite.h })
         end
       else
-        generate_chunk(cx, cy)  # see below
+        # We don't do this because this is for an "infinite" world.
+        # generate_chunk(cx, cy)  # see below
+        return
       end
 
-      # Re-bake: collect this chunk's tile keys then render
-      origin_x = cx * @chunk_px
-      origin_y = cy * @chunk_px
-      tile_keys = []
-      CHUNK_TILES.times do |dx|
-        CHUNK_TILES.times do |dy|
-          k = chunk_key(origin_x + dx * @tile_size, origin_y + dy * @tile_size)
-          tile_keys << k if @tiles[k]
-        end
-      end
-
-      bake_chunk(chunk_key(cx, cy), tile_keys)
+      rebake_chunk(cx, cy)
     end
 
     def unload_chunk(cx, cy)

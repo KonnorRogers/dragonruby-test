@@ -81,6 +81,7 @@ module App
       @outputs = args.outputs
       @keyboard = @inputs.keyboard
       @world_mouse = @camera.to_world_space(@inputs.mouse)
+      @map.outputs = @outputs
       input(args)
       calc(args)
       render(args)
@@ -239,46 +240,45 @@ module App
     end
 
     def update_loaded_chunks
-      # chunk_px = Map::CHUNK_TILES * @map.tile_size
-      # world = @camera.to_world_space!(@camera.viewport.dup)
+      chunk_px = Map::CHUNK_TILES * @map.tile_size
+      world = @camera.to_world_space!(@camera.viewport.dup)
 
-      # min_cx = (world.x / chunk_px).floor - CHUNK_LOAD_RADIUS
-      # min_cy = (world.y / chunk_px).floor - CHUNK_LOAD_RADIUS
-      # max_cx = ((world.x + world.w) / chunk_px).ceil + CHUNK_LOAD_RADIUS
-      # max_cy = ((world.y + world.h) / chunk_px).ceil + CHUNK_LOAD_RADIUS
+      min_cx = (world.x / chunk_px).floor - CHUNK_LOAD_RADIUS
+      min_cy = (world.y / chunk_px).floor - CHUNK_LOAD_RADIUS
+      max_cx = ((world.x + world.w) / chunk_px).ceil + CHUNK_LOAD_RADIUS
+      max_cy = ((world.y + world.h) / chunk_px).ceil + CHUNK_LOAD_RADIUS
 
-      # needed = {}
-      # min_cx.upto(max_cx) do |cx|
-      #   min_cy.upto(max_cy) do |cy|
-      #     key = @map.chunk_key(cx, cy)
-      #     needed[key] = [cx, cy]
-      #   end
-      # end
+      needed = {}
+      min_cx.upto(max_cx) do |cx|
+        min_cy.upto(max_cy) do |cy|
+          key = @map.chunk_key(cx, cy)
+          needed[key] = [cx, cy]
+        end
+      end
 
-      # needed.each do |key, (cx, cy)|
-      #   unless @loaded_chunks[key]
-      #     @map.load_chunk(cx, cy)
-      #     @loaded_chunks[key] = true
-      #   end
-      # end
+      needed.each do |key, (cx, cy)|
+        unless @loaded_chunks[key]
+          @map.load_chunk(cx, cy)
+          @loaded_chunks[key] = true
+        end
+      end
 
-      # @loaded_chunks.keys.each do |key|
-      #   unless needed[key]
-      #     cx = @map.chunk_key_to_cx(key)
-      #     cy = @map.chunk_key_to_cy(key)
-      #     @map.unload_chunk(cx, cy)
-      #     @loaded_chunks.delete(key)
-      #   end
-      # end
+      @loaded_chunks.keys.each do |key|
+        unless needed[key]
+          cx = @map.chunk_key_to_cx(key)
+          cy = @map.chunk_key_to_cy(key)
+          @map.unload_chunk(cx, cy)
+          @loaded_chunks.delete(key)
+        end
+      end
 
-      # if @tick_count % (60 * 5) == 0
-      #   @map.save_dirty_chunks
-      # end
+      if @tick_count % (60 * 5) == 0
+        @map.save_dirty_chunks
+      end
     end
 
     def render(args)
       if @map.generating?
-        @map.outputs = args.outputs
         @map.tick_generate
 
         # Loading bar here
