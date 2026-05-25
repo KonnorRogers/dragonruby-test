@@ -1,7 +1,8 @@
 module App
   class Character < SpriteKit::Sprite
     attr_accessor :target_x, :target_y, :target, :engine,
-                  :speed, :animations, :hit_box, :state, :direction, :collision
+                  :speed, :animations, :hit_box, :state, :direction, :collision, :entity,
+                  :type, :id, :current_hp, :max_hp
 
     include AnimationMixin
 
@@ -26,11 +27,11 @@ module App
       #   }
       # }
 
-      @max_hp = 100
-      @current_hp = @max_hp
-      @attack_cooldown = 2.0
-      @attack_range = 40
-      @last_attack = 0
+      @max_hp = kwargs.max_hp || 100
+      @current_hp = kwargs.current_hp || @max_hp
+      @attack_cooldown = kwargs.attack_cooldown || 200
+      @attack_range = kwargs.attack_range || 40
+      @last_attack = kwargs.last_attack || 0
     end
 
     def serialize

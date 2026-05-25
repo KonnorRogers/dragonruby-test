@@ -10,8 +10,9 @@ module SpriteKit
       y: nil,
       size_enum: nil,
       font: nil,
-      padding: 0,
-      border_width: 0
+      padding: 8,
+      border_width: 2,
+      background_color: nil
     )
       if !padding
         padding = 0
@@ -35,8 +36,8 @@ module SpriteKit
       rect = {
         w: w,
         h: h,
-        x: 0,
-        y: 0,
+        x: x,
+        y: y,
         primitive_marker: :sprite,
       }
 
@@ -50,10 +51,26 @@ module SpriteKit
         anchor_y: 0
       }.label!
 
+
+      background = nil
+      if background_color
+        background = {
+          x: x + border_width,
+          w: w - border_width,
+          y: y + border_width,
+          h: h - border_width,
+          **background_color,
+          path: :solid,
+          primitive_marker: :sprite
+        }
+      end
+
       primitives = [
+        *Primitives.borders(rect, border_width: border_width, padding: 0).values,
         label,
-        *Primitives.borders(rect, border_width: border_width, padding: 0).values
       ]
+
+      primitives.unshift(background) if background
 
       rect.primitives = primitives
 

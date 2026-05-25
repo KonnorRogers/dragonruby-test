@@ -17,9 +17,11 @@ module App
         source_y: 960,
         source_h: 16,
         source_w: 16,
-        path: SPRITESHEET_PATH
+        path: SPRITESHEET_PATH,
+        entity: :tile,
       },
       rock: {
+        entity: :object,
         scale: 1,
         source_x: 496,
         source_y: 944,
@@ -28,6 +30,7 @@ module App
         path: SPRITESHEET_PATH
       },
       silver: {
+        entity: :object,
         scale: 4,
         source_x: 784,
         source_y: 656,
@@ -42,6 +45,7 @@ module App
         }
       },
       tree: {
+        entity: :object,
         scale: 4,
         source_x: 0,
         source_y: 0,
@@ -56,6 +60,7 @@ module App
         }
       },
       berry_bush: {
+        entity: :object,
         scale: 4,
         source_x: 784,
         source_y: 944,
@@ -70,6 +75,7 @@ module App
         }
       },
       twig: {
+        entity: :object,
         scale: 2,
         source_x: 0,
         source_y: 0,
@@ -78,18 +84,28 @@ module App
         path: "sprites/sunny_world/tileset/twig-tree.png"
       },
       bear: {
+        entity: :enemy,
         scale: 2,
         source_x: 0,
         source_y: 480,
         source_h: 32,
         source_w: 32,
         path: "sprites/32rogues/animals.png"
+      },
+      cat: {
+        entity: :enemy,
+        scale: 2,
+        source_x: 0,
+        source_y: 384,
+        source_h: 32,
+        source_w: 32,
+        path: "sprites/32rogues/animals.png",
       }
     }
 
     SPRITES.each_value do |spr|
-      spr.w = spr.source_w * spr.scale
-      spr.h = spr.source_h * spr.scale
+      spr.w = spr.source_w * (spr.scale || 1)
+      spr.h = spr.source_h * (spr.scale || 1)
       if spr.collision
         spr.collision.x *= spr.scale
         spr.collision.w *= spr.scale
@@ -105,7 +121,8 @@ module App
       { name: :tree, weight: 0.05, **SPRITES.tree },
       { name: :berry_bush, weight: 0.05, **SPRITES.berry_bush },
       { name: :twig, weight: 0.1, **SPRITES.twig  },
-      { name: :bear, weight: 0.01, **SPRITES.bear }
+      { name: :bear, weight: 0.01, **SPRITES.bear },
+      { name: :cat, weight: 0.2, **SPRITES.cat }
     ]
 
     SCATTER_TOTAL = OBJECTS.sum(&:weight)
@@ -156,9 +173,10 @@ module App
       engine:,
       w: 16 * 1000,
       h: 16 * 1000,
-      save_directory: "data/saves/chunks",
+      save_directory: "data/saves",
       tile_size: 16,
-      seed: rand(1_000_000_000)
+      seed: rand(1_000_000_000),
+      force: false
     )
       @engine = engine
       @w = w
@@ -170,6 +188,7 @@ module App
       @columns = h.idiv(tile_size)
       @tiles = {}
       @objects = {}
+      @entities = {}
       @render_targets = {}
       @outputs = nil
       @largest_obj = OBJECTS.map do |o|
@@ -181,10 +200,11 @@ module App
       # Used for generating the map, max number of milliseconds a method can take when generating
       @max_elapsed_ms = 6
 
-      existing = $gtk.read_file("#{@save_directory}/complete.dat")
+      existing = $gtk.stat_file("#{@save_directory}/complete.dat")
 
-      if existing
+      if !force && existing
         saved = $gtk.deserialize_state("#{@save_directory}/complete.dat")
+        load_entities
         @seed = saved[:seed]
         @generating = false
         @generating_fiber = nil
@@ -274,6 +294,7 @@ module App
       end
 
       save_chunks
+      save_entities
       @tiles.clear
       @objects.clear
       @generating = false
@@ -306,12 +327,13 @@ module App
         obj_sprite = SPRITES[sym]
         obj = { type: sym, x: tile_x, y: tile_y, w: obj_sprite.w || @tile_size, h: obj_sprite.h || @tile_size }
         if !object_overlaps?(obj)
-          @objects[k] = obj
+          result = build_object(obj)
+          @objects[k] = obj if obj_sprite.entity == :object
+          @entities[result.id] = result if obj_sprite.entity == :enemy
           add_object(obj)
         end
       end
     end
-
 
     def add_object(obj)
       steps_x = [obj.w.idiv(@tile_size), 1].max
@@ -470,8 +492,13 @@ module App
       __in_viewport__(camera, hash: @tiles, largest_tile: @tile_size)
     end
 
+    def entities_in_viewport(camera)
+      world = camera.to_world_space!(camera.viewport.dup)
+      return Geometry.find_all_intersect_rect(world, @entities.values)
+    end
+
     def chunk_file(cx, cy)
-      "#{@save_directory}/chunk_#{cx}_#{cy}.dat"
+      "#{@save_directory}/chunks/chunk_#{cx}_#{cy}.dat"
     end
 
     def save_chunk(cx, cy)
@@ -480,6 +507,7 @@ module App
 
       tiles = {}
       objects = {}
+
       CHUNK_TILES.times do |dx|
         CHUNK_TILES.times do |dy|
           k = chunk_key(origin_x + dx * @tile_size, origin_y + dy * @tile_size)
@@ -488,7 +516,7 @@ module App
         end
       end
 
-      $gtk.serialize_state(chunk_file(cx, cy), { tiles: tiles, objects: objects, })
+      $gtk.serialize_state(chunk_file(cx, cy), { tiles: tiles, objects: objects })
     end
 
     def load_chunk(cx, cy)
@@ -560,10 +588,11 @@ module App
     end
 
     def clear_chunk_saves
-      files = $gtk.list_files(@save_directory)
+      chunk_directory = "#{@save_directory}/chunks"
+      files = $gtk.list_files(chunk_directory)
       return unless files
       files.each do |filename|
-        $gtk.delete_file("#{@save_directory}/#{filename}")
+        $gtk.delete_file("#{chunk_directory}/#{filename}")
       end
     end
 
@@ -572,14 +601,30 @@ module App
         return SPRITES[value]
       elsif value.is_a?(Hash)
         sprite = SPRITES[value.type]
-        if value.type == :bear
-          return Enemy.new(engine: @engine, **sprite, x: value.x, y: value.y)
+        if sprite.entity == :enemy
+          id = sprite.id || DR.create_uuid
+          enemy = Enemy.new(engine: @engine, **sprite, **value, id: id)
+          @entities[id] = enemy
+          return enemy
         else
-          return Character.new(engine: @engine, **sprite, x: value.x, y: value.y)
+          return Character.new(engine: @engine, **sprite, **value)
         end
       end
 
       value
+    end
+
+    def save_entities
+      $gtk.serialize_state("#{@save_directory}/entities.dat", @entities)
+    end
+
+    def load_entities
+      saved = $gtk.deserialize_state("#{@save_directory}/entities.dat")
+      if saved
+        saved.each do |id, obj|
+          @entities[id] = build_object(**obj)
+        end
+      end
     end
   end
 end

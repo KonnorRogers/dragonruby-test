@@ -58,12 +58,21 @@ module App
         # }
       end
 
+
+      @reset_button = ::SpriteKit::Primitives.button(x: 50, y: Grid.h - 100, text: "Generate new map", background_color: {
+        r: 255,
+        b: 255,
+        g: 255,
+        a: 128,
+      })
+
+
       @ui = {
         attack_button: @attack_button.to_a,
         # player_frame: player_frame,
         # enemy_frame: enemy_frame,
+        reset_button: @reset_button.primitives
       }
-
       @radial_buttons = UI::RadialMenu.new(anchor: @attack_button, number_of_buttons: 5)
       @max_elapsed_ms = 6
     end
@@ -73,6 +82,7 @@ module App
     end
 
     def tick(args)
+      @debug_renderables = []
       @inputs = args.inputs
       @outputs = args.outputs
       @keyboard = @inputs.keyboard
@@ -83,6 +93,13 @@ module App
       render(args)
       @camera_updated = false
       @tick_count += 1
+    end
+
+    def reset!
+      @loaded_chunks = {}
+      @initial_chunks_loaded = false
+      @map = Map.new(engine: self, force: true)
+      @initial_chunk_load = Fiber.new { update_loaded_chunks(fiber: true) }
     end
 
     def input(args)
@@ -131,21 +148,33 @@ module App
       end
 
 
+
+      args.outputs.debug << "#{@reset_button}"
       if @inputs.mouse.buttons.left.click
+        if @inputs.mouse.intersect_rect?(@reset_button)
+          reset!
+          return
+        end
+
         character = Geometry.find_intersect_rect(@world_mouse, @objects_in_viewport)
         if @player.active_spell
           @player.active_spell.cast(player: @player)
           @player.active_spell = nil
         else
           @player.target = character
-          if character
-            @target_circle.x = character.x - 2
-            @target_circle.y = character.y - 2
-            @target_circle.w = character.hit_box.w + 4
-            @target_circle.h = character.hit_box.h + 4
-          else
+          if !character
             @player.state = :idle
           end
+        end
+      end
+
+      if @player.target
+        character = @player.target
+        if character
+          @target_circle.x = character.x - 2
+          @target_circle.y = character.y - 2
+          @target_circle.w = (character.hit_box&.w || character.w) + 4
+          @target_circle.h = (character.hit_box&.h || (character.h / 2)) + 4
         end
       end
 
@@ -254,6 +283,18 @@ module App
           needed[key] = [cx, cy]
 
           fiber_yield.call if fiber
+
+          if @debug
+            @debug_renderables.concat(SpriteKit::Primitives.borders(
+              {
+                x: cx * chunk_px,
+                y: cy * chunk_px,
+                w: chunk_px,
+                h: chunk_px,
+              },
+              color: { r: 0, g: 255, b: 255, a: 200 }
+            ).values)
+          end
         end
       end
 
@@ -280,6 +321,7 @@ module App
       if @tick_count % (60 * 5) == 0
         @map.save_dirty_chunks
       end
+
     end
 
     def render(args)
@@ -311,8 +353,14 @@ module App
 
       args.outputs.debug << "TILES: #{@map.tiles.keys.length}"
 
-      screen_renderables = @objects_in_viewport.flat_map(&:prefab)
-      Array.each(@objects_in_viewport) { |obj| obj.update }
+      @entities_in_viewport = @map.entities_in_viewport(@camera)
+
+      screen_renderables = []
+
+      Array.each(@objects_in_viewport + @entities_in_viewport) do |obj|
+        obj.update
+        screen_renderables.concat(obj.prefab)
+      end
 
       if @player.target
         @target_circle.update
@@ -328,8 +376,6 @@ module App
         end
       end
 
-      debug_renderables = []
-
       if @debug
         @collision_in_viewport.each do |obj|
           obj.path = :solid
@@ -337,14 +383,14 @@ module App
           obj.a = 128
           obj.b = 0
           obj.g = 0
-          debug_renderables << obj
+          @debug_renderables << obj
         end
-        debug_renderables << @player.collision.merge({ path: :solid, r: 255, b: 0, g: 0, a: 128 })
+        @debug_renderables << @player.collision.merge({ path: :solid, r: 255, b: 0, g: 0, a: 128 })
       end
 
       screen_renderables = screen_renderables
         .concat(@player.prefab)
-        .concat(debug_renderables)
+        .concat(@debug_renderables)
         .flatten
         .map { |spr| @camera.to_screen_space!(spr.dup) }
 
@@ -367,6 +413,8 @@ module App
             end
           )
       )
+
+      # @map.save_entities
     end
 
     def load_initial_chunks

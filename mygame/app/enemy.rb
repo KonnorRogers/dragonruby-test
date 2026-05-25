@@ -1,5 +1,7 @@
 module App
   class Enemy < Character
+    attr_accessor :home_x, :home_y, :ai_state, :aggro_range, :max_roam
+
     def initialize(...)
       super(...)
       @wander_target_x = @x
@@ -11,6 +13,19 @@ module App
       @ai_state = :wandering
       @aggro_range = 100
       @max_roam = 300
+    end
+
+    def serialize
+      {
+        id: @id,
+        type: @type,
+        max_hp: @max_hp,
+        current_hp: @current_hp,
+        x: @x,
+        y: @y,
+        home_x: @home_x,
+        home_y: @home_y,
+      }
     end
 
     def prefab
@@ -50,9 +65,7 @@ module App
       when :returning
         tick_return
 
-        if dist_to_player < @aggro_range
-          @ai_state = :chasing
-        elsif dist_to_home < 8
+        if dist_to_home < 8
           @ai_state = :wandering
         end
       end
