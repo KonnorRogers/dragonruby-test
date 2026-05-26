@@ -98,6 +98,12 @@ module App
       }
     end
 
+    def serialize
+      hash = super
+      hash.delete(:spells)
+      hash
+    end
+
     def state=(val)
       # if state changes, update animation start time.
       return if val == @state

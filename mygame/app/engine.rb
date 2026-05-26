@@ -43,19 +43,20 @@ module App
       size = 96
       @attack_button = ::App::UI::AttackCircle.new(w: size, h: size, x: (size * 2).from_right, y: size)
 
-      @map = Map.new(engine: self)
 
-      @player = Player.new(engine: self).tap do |player|
+      @save_directory = "data/saves"
+      @player_file = "#{@save_directory}/player.dat"
+
+      @map = Map.new(engine: self, save_directory: @save_directory)
+
+      @player = load_player
+      @player ||= Player.new(engine: self).tap do |player|
         player.x = @map.w / 2
         player.y = @map.h / 2
         player.target_y = player.y
         player.target_x = player.x
         player.w = 18 * 2
         player.h = 16 * 2
-        # player.hit_box = {
-        #   h: 16,
-        #   w: 18,
-        # }
       end
 
 
@@ -185,6 +186,8 @@ module App
       return if loading?
 
       update_loaded_chunks
+      @map.activate_entities_near(@camera)
+      # @map.deactivate_distant_entities(@camera)
 
       @objects_in_viewport = @map.objects_in_viewport(@camera, engine: self)
 
@@ -203,6 +206,7 @@ module App
 
       calc_player
       calc_camera
+      args.outputs.debug << "dormant: #{@map.dormant_entities.length} active: #{@map.active_entities.length}"
     end
 
     def handle_camera_zoom
@@ -322,6 +326,9 @@ module App
         @map.save_dirty_chunks
       end
 
+      if @tick_count % (60 * 1) == 0
+        @map.save_active_entities
+      end
     end
 
     def render(args)
@@ -351,9 +358,11 @@ module App
 
       @player.update
 
-      args.outputs.debug << "TILES: #{@map.tiles.keys.length}"
+      # args.outputs.debug << "TILES: #{@map.tiles.keys.length}"
 
-      @entities_in_viewport = @map.entities_in_viewport(@camera)
+      # @entities_in_viewport = @map.entities_in_viewport(@camera)
+      @entities_in_viewport = @map.active_entities.values
+
 
       screen_renderables = []
 
@@ -414,7 +423,18 @@ module App
           )
       )
 
-      # @map.save_entities
+      if @tick_count % 20 == 0
+        save_player
+      end
+    end
+
+    def save_player
+      GTK.serialize_state(@player_file, { player: @player.serialize })
+    end
+
+    def load_player
+      data = GTK.deserialize_state(@player_file)
+      Player.new(engine: self, **data.player) if data&.player
     end
 
     def load_initial_chunks

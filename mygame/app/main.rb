@@ -31,6 +31,7 @@ require "app/scenes/play_scene.rb"
 require "app/game.rb"
 
 module Main
+  attr_accessor :game
   def tick(args)
     if !@game
       GTK.reset_sprites

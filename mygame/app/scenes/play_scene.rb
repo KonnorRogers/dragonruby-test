@@ -1,6 +1,7 @@
 module App
   module Scenes
     class PlayScene
+      attr_accessor :engine
       def initialize
         @engine = Engine.new
       end

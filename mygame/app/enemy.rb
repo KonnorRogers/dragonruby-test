@@ -15,6 +15,19 @@ module App
       @max_roam = 300
     end
 
+    def self.serialize(**kwargs)
+      {
+        id: kwargs.id,
+        type: kwargs.type,
+        max_hp: kwargs.max_hp,
+        current_hp: kwargs.current_hp,
+        x: kwargs.x,
+        y: kwargs.y,
+        home_x: kwargs.home_x,
+        home_y: kwargs.home_y,
+      }
+    end
+
     def serialize
       {
         id: @id,

@@ -1,5 +1,6 @@
 module App
   class Game
+    attr_accessor :scene
     def initialize
       @scenes = {
         play_scene: lambda {

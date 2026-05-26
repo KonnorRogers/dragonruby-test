@@ -8,6 +8,16 @@ module App
     def chunk_key_to_cx(key)  (key & 0xFFFF).then { |v| v > 32767 ? v - 65536 : v }  end
     def chunk_key_to_cy(key)  key >> 16  end
 
+    def entity_chunk_key(x, y)
+      cx = x.idiv(@chunk_px)
+      cy = y.idiv(@chunk_px)
+      "#{cx}_#{cy}"
+    end
+
+    def entity_chunk_file(key)
+      "#{@save_directory}/entities/entity_chunk_#{key}.dat"
+    end
+
     SPRITESHEET_PATH = "sprites/sunny_world/tileset/spr_tileset_sunnysideworld_16px.png"
 
     SPRITES = {
@@ -167,7 +177,7 @@ module App
     # How many tiles per chunk side (16 tiles × 16px = 256px chunks)
     CHUNK_TILES = 16
 
-    attr_accessor :tiles, :tile_size, :outputs, :w, :h
+    attr_accessor :tiles, :tile_size, :outputs, :w, :h, :active_entities, :dormant_entities
 
     def initialize(
       engine:,
@@ -182,13 +192,16 @@ module App
       @w = w
       @h = h
       @save_directory = save_directory
+      @chunk_directory = "#{@save_directory}/chunks"
+      @entities_directory = "#{@save_directory}/entities"
       @tile_size = tile_size
       @chunk_px = CHUNK_TILES * tile_size
       @rows = w.idiv(tile_size)
       @columns = h.idiv(tile_size)
       @tiles = {}
       @objects = {}
-      @entities = {}
+      @active_entities = {}    # id => Enemy instance
+      @dormant_entities = {}   # id => { t:, x:, y:, hp: }
       @render_targets = {}
       @outputs = nil
       @largest_obj = OBJECTS.map do |o|
@@ -204,7 +217,7 @@ module App
 
       if !force && existing
         saved = $gtk.deserialize_state("#{@save_directory}/complete.dat")
-        load_entities
+        # load_entities
         @seed = saved[:seed]
         @generating = false
         @generating_fiber = nil
@@ -294,7 +307,7 @@ module App
       end
 
       save_chunks
-      save_entities
+      save_all_entities
       @tiles.clear
       @objects.clear
       @generating = false
@@ -327,9 +340,13 @@ module App
         obj_sprite = SPRITES[sym]
         obj = { type: sym, x: tile_x, y: tile_y, w: obj_sprite.w || @tile_size, h: obj_sprite.h || @tile_size }
         if !object_overlaps?(obj)
-          result = build_object(obj)
+          # build_object(obj) if obj_sprite.entity == :enemy
           @objects[k] = obj if obj_sprite.entity == :object
-          @entities[result.id] = result if obj_sprite.entity == :enemy
+
+          if obj_sprite.entity == :enemy
+            id = $gtk.create_uuid
+            @dormant_entities[id] = Enemy.serialize(**obj_sprite, **obj, id: id)
+          end
           add_object(obj)
         end
       end
@@ -494,11 +511,13 @@ module App
 
     def entities_in_viewport(camera)
       world = camera.to_world_space!(camera.viewport.dup)
-      return Geometry.find_all_intersect_rect(world, @entities.values)
+      @active_entities.values.select do |e|
+        Geometry.intersect_rect?(world, { x: e.x, y: e.y, w: e.w, h: e.h })
+      end
     end
 
     def chunk_file(cx, cy)
-      "#{@save_directory}/chunks/chunk_#{cx}_#{cy}.dat"
+      "#{@chunk_directory}/chunk_#{cx}_#{cy}.dat"
     end
 
     def save_chunk(cx, cy)
@@ -541,12 +560,15 @@ module App
         return
       end
 
+      load_entity_chunk(cx, cy)
       rebake_chunk(cx, cy)
     end
 
     def unload_chunk(cx, cy)
       key = chunk_key(cx, cy)
       save_chunk(cx, cy) if @dirty_chunks.delete(key)
+
+      unload_entity_chunk(cx, cy)
 
       # Evict tiles + objects from memory
       origin_x = cx * @chunk_px
@@ -588,23 +610,28 @@ module App
     end
 
     def clear_chunk_saves
-      chunk_directory = "#{@save_directory}/chunks"
-      files = $gtk.list_files(chunk_directory)
-      return unless files
-      files.each do |filename|
-        $gtk.delete_file("#{chunk_directory}/#{filename}")
+      [
+        "#{@save_directory}/chunks",
+        "#{@save_directory}/entities"
+      ].each do |dir|
+        files = $gtk.list_files(dir)
+
+        next if !files
+
+        files.each { |f| $gtk.delete_file("#{dir}/#{f}") }
       end
     end
 
     def build_object(value)
       if value.is_a?(Symbol)
         return SPRITES[value]
+      elsif value.is_a?(Array)
+        return Array.map(value) { |spr| build_object(**spr) }
       elsif value.is_a?(Hash)
         sprite = SPRITES[value.type]
         if sprite.entity == :enemy
           id = sprite.id || DR.create_uuid
           enemy = Enemy.new(engine: @engine, **sprite, **value, id: id)
-          @entities[id] = enemy
           return enemy
         else
           return Character.new(engine: @engine, **sprite, **value)
@@ -614,15 +641,139 @@ module App
       value
     end
 
-    def save_entities
-      $gtk.serialize_state("#{@save_directory}/entities.dat", @entities)
+    def save_all_entities
+      # flush active → dormant format for saving
+      all = @dormant_entities.dup
+      @active_entities.each do |id, e|
+        all[id] = e.serialize
+      end
+
+      # group by entity chunk
+      by_chunk = Hash.new { |h, k| h[k] = [] }
+      all.each do |id, data|
+        key = entity_chunk_key(data.x, data.y)
+        by_chunk[key] << {id: id, **data}
+      end
+
+      by_chunk.each do |key, entities|
+        $gtk.serialize_state(entity_chunk_file(key), {entities: entities })
+      end
+    end
+
+    def save_active_entities
+      chunks = Hash.new { |h, k| h[k] = [] }
+      @active_entities.each do |id, entity|
+        key = entity_chunk_key(entity.x, entity.y)
+        chunks[key] << entity.serialize
+      end
+
+      # group by entity chunk
+      chunks.each do |chunk, entities|
+        $gtk.serialize_state(entity_chunk_file(chunk), { entities: entities })
+      end
     end
 
     def load_entities
-      saved = $gtk.deserialize_state("#{@save_directory}/entities.dat")
-      if saved
-        saved.each do |id, obj|
-          @entities[id] = build_object(**obj)
+      files = $gtk.list_files("#{@save_directory}/entities")
+
+      return unless files
+
+      files.each do |filename|
+        next unless filename.start_with?("entity_chunk_")
+        data = $gtk.deserialize_state("#{@save_directory}/entities/#{filename}")
+        next unless data
+        data.entities.each do |saved|
+          @dormant_entities[saved.id] = Enemy.serialize(**saved)
+        end
+      end
+    end
+
+    def activate_entities_near(camera)
+      world = camera.to_world_space!(camera.viewport.dup)
+      activation_rect = {
+        x: world.x - @chunk_px,
+        y: world.y - @chunk_px,
+        w: world.w + @chunk_px * 2,
+        h: world.h + @chunk_px * 2
+      }
+
+      @dormant_entities.keys.each do |id|
+        entity = @dormant_entities[id]
+        sprite = SPRITES[entity.type]
+        if Geometry.intersect_rect?({**entity, **sprite}, activation_rect)
+          enemy = Enemy.new(
+            engine: @engine,
+            **sprite,
+            **entity,
+            id: id,
+          )
+          @active_entities[id] = enemy
+          @dormant_entities.delete(id)
+        end
+      end
+    end
+
+    def deactivate_distant_entities(camera)
+      world = camera.to_world_space!(camera.viewport.dup)
+      deactivation_rect = {
+        x: world.x - @chunk_px * 2,
+        y: world.y - @chunk_px * 2,
+        w: world.w + @chunk_px * 4,
+        h: world.h + @chunk_px * 4
+      }
+
+      @active_entities.keys.each do |id|
+        e = @active_entities[id]
+        unless Geometry.intersect_rect?(e, deactivation_rect)
+          @dormant_entities[id] = e.serialize
+          @active_entities.delete(id)
+        end
+      end
+    end
+
+    def load_entity_chunk(cx, cy)
+      eck = entity_chunk_key(cx * @chunk_px, cy * @chunk_px)
+      path = entity_chunk_file(eck)
+
+      puts "PATH: #{path}"
+      raw = $gtk.read_file(path)
+      return unless raw
+
+      data = $gtk.deserialize_state(path)
+      return unless data
+
+      data.entities.each do |saved|
+        id = saved.id
+        next unless id
+        # don't overwrite already-active entities
+        next if @active_entities[id]
+        next if @dormant_entities[id]
+
+        sprite = SPRITES[saved.type]
+        @dormant_entities[id] = Enemy.serialize(**sprite, **saved)
+      end
+    end
+
+    def unload_entity_chunk(cx, cy)
+      origin_x = cx * @chunk_px
+      origin_y = cy * @chunk_px
+      chunk_rect = { x: origin_x, y: origin_y, w: @chunk_px, h: @chunk_px }
+
+      # flush active→dormant for entities in this chunk, then remove
+      @active_entities.keys.each do |id|
+        entity = @active_entities[id]
+        if Geometry.intersect_rect?(entity, chunk_rect)
+          @dormant_entities[id] = entity.serialize
+          @active_entities.delete(id)
+        end
+      end
+
+      # remove dormant entities belonging to this chunk
+      @dormant_entities.keys.each do |id|
+        entity = @dormant_entities[id]
+        sprite = SPRITES[entity.type]
+        if Geometry.intersect_rect?({ **sprite, **entity }, chunk_rect)
+          @dormant_entities.delete(id)
         end
       end
     end
