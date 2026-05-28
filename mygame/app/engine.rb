@@ -157,7 +157,7 @@ module App
           return
         end
 
-        character = Geometry.find_intersect_rect(@world_mouse, @objects_in_viewport)
+        character = Geometry.find_intersect_rect(@world_mouse, @objects_in_viewport + @entities_in_viewport)
         if @player.active_spell
           @player.active_spell.cast(player: @player)
           @player.active_spell = nil

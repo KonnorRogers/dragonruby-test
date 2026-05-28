@@ -2,7 +2,7 @@ module App
   class Character < SpriteKit::Sprite
     attr_accessor :target_x, :target_y, :target, :engine,
                   :speed, :animations, :hit_box, :state, :direction, :collision, :entity,
-                  :type, :id, :current_hp, :max_hp
+                  :type, :id, :current_hp, :max_hp, :last_attack
 
     include AnimationMixin
 
@@ -29,8 +29,8 @@ module App
 
       @max_hp = kwargs.max_hp || 100
       @current_hp = kwargs.current_hp || @max_hp
-      @attack_cooldown = kwargs.attack_cooldown || 200
-      @attack_range = kwargs.attack_range || 40
+      @attack_cooldown = kwargs.attack_cooldown || 2
+      @attack_range = kwargs.attack_range || 100
       @last_attack = kwargs.last_attack || 0
     end
 

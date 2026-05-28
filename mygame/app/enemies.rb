@@ -6,8 +6,6 @@ module App
   ENEMIES = {
     hyena: {
       max_hp: 32,
-      behavior: :patrol,
-      faction: :enemy,
       hit_box: {
         w: 32,
         h: 18
