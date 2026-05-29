@@ -50,8 +50,8 @@ module App
         collision: {
           x: 4,
           y: 6,
-          h: -10,
-          w: -8
+          h: 32 - 10,
+          w: 32 - 8
         }
       },
       tree: {
@@ -511,9 +511,7 @@ module App
 
     def entities_in_viewport(camera)
       world = camera.to_world_space!(camera.viewport.dup)
-      @active_entities.values.select do |e|
-        Geometry.intersect_rect?(world, { x: e.x, y: e.y, w: e.w, h: e.h })
-      end
+      Geometry.intersect_rect(world, @active_entities.values)
     end
 
     def chunk_file(cx, cy)

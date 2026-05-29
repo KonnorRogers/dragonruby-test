@@ -11,6 +11,7 @@ module App
       @initial_chunk_load = Fiber.new { update_loaded_chunks(fiber: true) }
       @initial_chunks_loaded = false
       @debug = true
+      @show_grid = false
       @camera = SpriteKit::Camera.new(path: :camera)
       @camera_updated = true
       @floating_text = App::UI::FloatingText.new(engine: self, path: @camera.path)
@@ -138,6 +139,10 @@ module App
         @debug = !@debug
       end
 
+      if @inputs.keyboard.key_down.g
+        @show_grid = !@show_grid
+      end
+
       if !@inputs.down && !@inputs.up && !@inputs.left && !@inputs.right
         @player.state = :idle
       end
@@ -196,10 +201,10 @@ module App
       Array.each(@objects_in_viewport) do |obj|
         if obj&.collision
           obj = obj.dup
-          obj.x = obj.x + obj.collision.x
-          obj.y = obj.y + obj.collision.y
-          obj.w = obj.h + obj.collision.w
-          obj.h = obj.h + obj.collision.h
+          obj.x = obj.x - (obj.collision.x * @camera.scale)
+          obj.y = obj.y - (obj.collision.y * @camera.scale)
+          obj.w = obj.w - (obj.collision.w * @camera.scale)
+          obj.h = obj.h - (obj.collision.h * @camera.scale)
           @collision_in_viewport << obj
         end
       end
@@ -363,7 +368,6 @@ module App
       # @entities_in_viewport = @map.entities_in_viewport(@camera)
       @entities_in_viewport = @map.active_entities.values
 
-
       screen_renderables = []
 
       Array.each(@objects_in_viewport + @entities_in_viewport) do |obj|
@@ -403,6 +407,10 @@ module App
         .flatten
         .map { |spr| @camera.to_screen_space!(spr.dup) }
 
+      if @show_grid
+        screen_renderables.unshift(*render_grid)
+      end
+
       args.outputs[@camera.path].primitives
         .concat(@map.chunks_in_viewport(@camera).map { |spr| @camera.to_screen_space!(spr.dup) })
         .concat(screen_renderables)
@@ -422,6 +430,7 @@ module App
             end
           )
       )
+
 
       if @tick_count % 20 == 0
         save_player
@@ -445,5 +454,34 @@ module App
       end
     end
 
+    def render_grid
+      world = @camera.to_world_space!(@camera.viewport.dup)
+      tile_size = 32
+
+      min_x = [(world.x / tile_size).floor * tile_size, 0].max
+      min_y = [(world.y / tile_size).floor * tile_size, 0].max
+      max_x = world.x + world.w
+      max_y = world.y + world.h
+
+      solids = []
+
+      x = min_x
+      while x <= max_x
+        s = { x: x, y: min_y, w: 1, h: max_y - min_y }
+        @camera.to_screen_space!(s)
+        solids << { x: s.x, y: s.y, w: 1, h: s.h, r: 255, g: 255, b: 255, a: 255, path: :solid }
+        x += tile_size
+      end
+
+      y = min_y
+      while y <= max_y
+        s = { x: min_x, y: y, w: max_x - min_x, h: 1 }
+        @camera.to_screen_space!(s)
+        solids << { x: s.x, y: s.y, w: s.w, h: 1, r: 255, g: 255, b: 255, a: 255, path: :solid }
+        y += tile_size
+      end
+
+      solids
+    end
   end
 end
