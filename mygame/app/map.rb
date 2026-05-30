@@ -65,8 +65,8 @@ module App
         collision: {
           x: 10,
           y: 6,
-          h: -28,
-          w: -22
+          h: 34 - 28,
+          w: 34 - 22,
         }
       },
       berry_bush: {
@@ -80,8 +80,8 @@ module App
         collision: {
           x: 6,
           y: 8,
-          h: -14,
-          w: -12
+          h: 32 - 14,
+          w: 32 - 12
         }
       },
       twig: {

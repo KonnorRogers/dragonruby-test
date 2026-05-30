@@ -201,10 +201,10 @@ module App
       Array.each(@objects_in_viewport) do |obj|
         if obj&.collision
           obj = obj.dup
-          obj.x = obj.x - (obj.collision.x * @camera.scale)
-          obj.y = obj.y - (obj.collision.y * @camera.scale)
-          obj.w = obj.w - (obj.collision.w * @camera.scale)
-          obj.h = obj.h - (obj.collision.h * @camera.scale)
+          obj.w = obj.collision.w
+          obj.h = obj.collision.h
+          obj.x = obj.x + obj.collision.x
+          obj.y = obj.y + obj.collision.y
           @collision_in_viewport << obj
         end
       end
